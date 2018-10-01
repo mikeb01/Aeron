@@ -51,7 +51,7 @@ if(UUID_H_EXISTS)
 endif()
 
 if(MSVC AND "${CMAKE_SYSTEM_NAME}" MATCHES "Windows")
-    set(AERON_LIB_WINSOCK_LIBS wsock32 ws2_32 Iphlpapi)	
+    set(AERON_LIB_WINSOCK_LIBS wsock32 ws2_32 Iphlpapi)
 endif()
 
 check_symbol_exists(uuid_generate "uuid/uuid.h" UUID_GENERATE_PROTOTYPE_EXISTS)
@@ -235,7 +235,7 @@ set(AGENT_SOURCE
     concurrent/aeron_logbuffer_descriptor.c
     util/aeron_fileutil.c
     util/aeron_dlopen.c
-    util/aeron_error.c    
+    util/aeron_error.c
     aeron_alloc.c
     aeron_windows.c)
 
@@ -259,6 +259,7 @@ add_library(aeron_driver SHARED ${SOURCE} ${HEADERS})
 target_include_directories(aeron_driver
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
 add_executable(aeronmd aeronmd.c)
 target_include_directories(aeronmd
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -311,7 +312,7 @@ target_link_libraries(
     ${AERON_LIB_M_LIBS}
     ${CMAKE_THREAD_LIBS_INIT}
     ${AERON_LIB_WINSOCK_LIBS})
-	
+
 target_compile_definitions(aeron_driver PRIVATE -DAERON_DRIVER)
 
 if (AERON_INSTALL_TARGETS)
@@ -321,4 +322,31 @@ if (AERON_INSTALL_TARGETS)
         LIBRARY DESTINATION lib)
     install(TARGETS aeronmd DESTINATION bin)
     install(DIRECTORY . DESTINATION  include/aeronmd FILES_MATCHING PATTERN "*.h")
+endif()
+
+if (BUILD_AERON_DPDK_DRIVER)
+    if(NOT "${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
+        message(FATAL_ERROR "Unable to bulid with DPDK on ${CMAKE_SYSTEM_NAME}")
+    endif()
+
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cppbuild/cmake-modules/")
+    find_package (dpdk REQUIRED)
+
+    add_executable(aeronmd_dpdk aeronmd_dpdk.c ${SOURCE} ${HEADERS})
+    target_include_directories(aeronmd_dpdk
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${DPDK_INCLUDE_DIR}
+    )
+
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse4.1 -ggdb")
+
+    target_link_libraries(
+        aeronmd_dpdk
+        ${DPDK_LIBRARIES}
+        ${CMAKE_DL_LIBS}
+        ${AERON_LIB_BSD_LIBS}
+        ${AERON_LIB_UUID_LIBS}
+        ${AERON_LIB_M_LIBS}
+        ${CMAKE_THREAD_LIBS_INIT}
+    )
+
 endif()
