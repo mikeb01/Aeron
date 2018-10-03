@@ -333,8 +333,8 @@ if (BUILD_AERON_DPDK_DRIVER)
     find_package(dpdk REQUIRED)
 
 
-    set(DPDK_SOURCE ${SOURCE})
-    set(DPDK_HEADERS ${HEADERS})
+    set(DPDK_SOURCE ${SOURCE} media/dpdk/aeron_dpdk_context.c)
+    set(DPDK_HEADERS ${HEADERS} media/dpdk/aeron_dpdk_context.h)
 
     list(REMOVE_ITEM DPDK_SOURCE media/aeron_udp_transport_poller.c)
     list(APPEND DPDK_SOURCE media/aeron_udp_transport_poller_dpdk.c)
