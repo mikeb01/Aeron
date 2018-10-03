@@ -27,7 +27,7 @@
 #include <rte_eal.h>
 #include <rte_debug.h>
 
-#include "aeronmd.h"
+#include "aeron_driver_context.h"
 #include "concurrent/aeron_atomic.h"
 
 volatile bool running = true;
