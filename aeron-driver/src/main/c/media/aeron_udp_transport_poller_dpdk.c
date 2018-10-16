@@ -15,11 +15,15 @@
  */
 
 #include <unistd.h>
+
+#include "aeron_driver_context.h"
 #include "util/aeron_arrayutil.h"
 #include "aeron_alloc.h"
 #include "media/aeron_udp_transport_poller.h"
 
-int aeron_udp_transport_poller_init(aeron_udp_transport_poller_t *poller)
+int aeron_udp_transport_poller_init(
+    aeron_driver_context_t* driver_context,
+    aeron_udp_transport_poller_t* poller)
 {
     poller->transports.array = NULL;
     poller->transports.length = 0;

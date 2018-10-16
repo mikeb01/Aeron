@@ -41,7 +41,7 @@ int aeron_driver_sender_init(
     aeron_system_counters_t *system_counters,
     aeron_distinct_error_log_t *error_log)
 {
-    if (aeron_udp_transport_poller_init(&sender->poller) < 0)
+    if (aeron_udp_transport_poller_init(context, &sender->poller) < 0)
     {
         return -1;
     }

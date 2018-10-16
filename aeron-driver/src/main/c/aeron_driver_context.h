@@ -27,6 +27,9 @@
 #include "aeron_flow_control.h"
 #include "aeron_congestion_control.h"
 #include "aeron_agent.h"
+#ifdef USE_DPDK
+#include "media/dpdk/aeron_dpdk_context.h"
+#endif
 
 #define AERON_CNC_FILE "cnc.dat"
 #define AERON_LOSS_REPORT_FILE "loss-report.dat"
@@ -155,6 +158,10 @@ typedef struct aeron_driver_context_stct
     aeron_driver_conductor_to_client_interceptor_func_t to_client_interceptor_func;
 
     int64_t receiver_id;
+
+#ifdef USE_DPDK
+    aeron_dpdk_context_t* dpdk_context;
+#endif
 }
 aeron_driver_context_t;
 
