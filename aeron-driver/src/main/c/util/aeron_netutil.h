@@ -66,4 +66,6 @@ bool aeron_is_wildcard_addr(struct sockaddr_storage *addr);
 
 void aeron_format_source_identity(char *buffer, size_t length, struct sockaddr_storage *addr);
 
+void print_sockaddr(const char* name, struct sockaddr_storage* addr);
+
 #endif //AERON_NETUTIL_H

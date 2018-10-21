@@ -21,6 +21,8 @@
 
 #include "aeron_socket.h"
 #include <stdio.h>
+#include <arpa/inet.h>
+#include "util/aeron_netutil.h"
 #include "util/aeron_arrayutil.h"
 #include "media/aeron_receive_channel_endpoint.h"
 #include "aeron_driver_receiver.h"

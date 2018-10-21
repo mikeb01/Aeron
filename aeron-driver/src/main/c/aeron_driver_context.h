@@ -160,7 +160,7 @@ typedef struct aeron_driver_context_stct
     int64_t receiver_id;
 
 #ifdef USE_DPDK
-    aeron_dpdk_context_t* dpdk_context;
+    aeron_dpdk_t* dpdk_context;
 #endif
 }
 aeron_driver_context_t;

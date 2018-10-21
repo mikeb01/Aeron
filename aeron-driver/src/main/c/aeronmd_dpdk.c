@@ -24,6 +24,7 @@
 #include <time.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "media/dpdk/aeron_dpdk_context.h"
 #include "aeron_driver_context.h"
@@ -49,7 +50,7 @@ int main(int argc, char **argv)
 
     aeron_dpdk_init_eal(argc, argv);
 
-    aeron_dpdk_context_t* aeron_dpdk_context;
+    aeron_dpdk_t* aeron_dpdk_context;
     aeron_driver_context_t *context = NULL;
     aeron_driver_t *driver = NULL;
 

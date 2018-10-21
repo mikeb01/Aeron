@@ -87,6 +87,9 @@ int aeron_send_channel_endpoint_create(
     _endpoint->transport.fd = -1;
     _endpoint->channel_status.counter_id = -1;
 
+    print_sockaddr("Send remote", &channel->remote_data);
+    print_sockaddr("Send local", &channel->local_data);
+
     if (aeron_udp_channel_transport_init(
         &_endpoint->transport,
         (channel->multicast) ? &channel->remote_control : &channel->local_control,

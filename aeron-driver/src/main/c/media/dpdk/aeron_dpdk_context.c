@@ -9,6 +9,7 @@
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 
+#include "concurrent/aeron_spsc_rb.h"
 
 #include "aeron_dpdk_context.h"
 
@@ -21,21 +22,22 @@ void aeron_dpdk_init_eal(int argc, char** argv)
 
 }
 
-struct aeron_dpdk_context_stct
+struct aeron_dpdk_stct
 {
     uint16_t port_id;
     struct rte_mempool* mbuf_pool;
     uint32_t local_ipv4_address;
     uint16_t subnet_mask;
+    aeron_spsc_rb_t* protocol_rb;
 };
 
-int aeron_dpdk_init(aeron_dpdk_context_t** context)
+int aeron_dpdk_init(aeron_dpdk_t** context)
 {
     // TODO: Make all of this configurable
     uint16_t num_rxd = 1024;
     uint16_t num_txd = 1024;
 
-    *context = (aeron_dpdk_context_t*) rte_zmalloc("aeron_dpdk_context", sizeof(aeron_dpdk_context_t), 0);
+    *context = (aeron_dpdk_t*) rte_zmalloc("aeron_dpdk_context", sizeof(aeron_dpdk_t), 0);
 
     if (NULL == *context)
     {
@@ -120,3 +122,14 @@ int aeron_dpdk_init(aeron_dpdk_context_t** context)
 
     return 0;
 }
+
+uint16_t aeron_dpdk_get_port_id(aeron_dpdk_t* context)
+{
+    return context->port_id;
+}
+
+struct rte_mempool* aeron_dpdk_get_mempool(aeron_dpdk_t* context)
+{
+    return context->mbuf_pool;
+}
+

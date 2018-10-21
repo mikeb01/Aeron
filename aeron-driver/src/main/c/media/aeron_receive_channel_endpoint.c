@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <inttypes.h>
+#include <aeron_driver_conductor.h>
 #include "aeron_socket.h"
 #include "aeron_system_counters.h"
 #include "util/aeron_netutil.h"
@@ -64,6 +65,9 @@ int aeron_receive_channel_endpoint_create(
     _endpoint->conductor_fields.status = AERON_RECEIVE_CHANNEL_ENDPOINT_STATUS_ACTIVE;
     _endpoint->transport.fd = -1;
     _endpoint->channel_status.counter_id = -1;
+
+    print_sockaddr("Receive remote", &channel->remote_data);
+    print_sockaddr("Receive local", &channel->local_data);
 
     if (aeron_udp_channel_transport_init(
         &_endpoint->transport,

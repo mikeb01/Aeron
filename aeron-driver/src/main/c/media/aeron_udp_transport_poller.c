@@ -21,6 +21,7 @@
 #include <unistd.h>
 #endif
 
+#include <stdio.h>
 
 #include "aeron_driver_context.h"
 #include "util/aeron_arrayutil.h"

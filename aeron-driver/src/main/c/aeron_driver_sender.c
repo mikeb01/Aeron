@@ -21,6 +21,8 @@
 
 #include <aeron_socket.h>
 #include <stdio.h>
+#include <arpa/inet.h>
+#include "util/aeron_netutil.h"
 
 #if !defined(HAVE_STRUCT_MMSGHDR)
 struct mmsghdr
@@ -154,6 +156,14 @@ int aeron_driver_sender_do_work(void *clientd)
 
         sender->duty_cycle_counter = 0;
         sender->control_poll_timeout_ns = now_ns + sender->status_message_read_timeout_ns;
+
+        if (work_count != 0)
+        {
+            for (int l = 0; l < AERON_DRIVER_SENDER_NUM_RECV_BUFFERS; l++)
+            {
+                print_sockaddr("Sender", &sender->recv_buffers.addrs[l]);
+            }
+        }
     }
 
     return work_count + bytes_sent;

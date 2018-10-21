@@ -49,6 +49,9 @@ typedef struct aeron_udp_transport_poller_stct
 #elif defined(HAVE_POLL)
     struct pollfd *pollfds;
 #endif
+#if defined(USE_DPDK)
+    aeron_dpdk_t* dpdk_context;
+#endif
 }
 aeron_udp_transport_poller_t;
 

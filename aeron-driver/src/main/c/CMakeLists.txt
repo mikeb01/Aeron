@@ -337,7 +337,10 @@ if (BUILD_AERON_DPDK_DRIVER)
     set(DPDK_HEADERS ${HEADERS} media/dpdk/aeron_dpdk_context.h)
 
     list(REMOVE_ITEM DPDK_SOURCE media/aeron_udp_transport_poller.c)
+    list(REMOVE_ITEM DPDK_SOURCE media/aeron_udp_channel_transport.c)
+
     list(APPEND DPDK_SOURCE media/aeron_udp_transport_poller_dpdk.c)
+    list(APPEND DPDK_SOURCE media/aeron_udp_channel_transport_dpdk.c)
 
     list(REMOVE_ITEM DPDK_HEADERS aeronmd.h)
 

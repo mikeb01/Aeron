@@ -14,11 +14,22 @@
  * limitations under the License.
  */
 
+#if defined(__linux__)
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <unistd.h>
+#include <rte_ethdev.h>
+#include <rte_mbuf.h>
+#include <rte_ip.h>
+#include <rte_udp.h>
+#include <sys/socket.h>
 
 #include "aeron_driver_context.h"
 #include "util/aeron_arrayutil.h"
 #include "aeron_alloc.h"
+#include "media/aeron_udp_channel_transport.h"
 #include "media/aeron_udp_transport_poller.h"
 
 int aeron_udp_transport_poller_init(
@@ -29,16 +40,8 @@ int aeron_udp_transport_poller_init(
     poller->transports.length = 0;
     poller->transports.capacity = 0;
 
-#if defined(HAVE_EPOLL)
-    if ((poller->epoll_fd = epoll_create1(0)) < 0)
-    {
-        aeron_set_err(errno, "epoll_create1: %s", strerror(errno));
-        return -1;
-    }
-    poller->epoll_events = NULL;
-#elif defined(HAVE_POLL)
-    poller->pollfds = NULL;
-#endif
+    // Assign driver context to poller so that dpdk context can be reached.
+    poller->dpdk_context = driver_context->dpdk_context;
 
     return 0;
 }
@@ -46,19 +49,14 @@ int aeron_udp_transport_poller_init(
 int aeron_udp_transport_poller_close(aeron_udp_transport_poller_t *poller)
 {
     aeron_free(poller->transports.array);
-#if defined(HAVE_EPOLL)
-    close(poller->epoll_fd);
-    aeron_free(poller->epoll_events);
-#elif defined(HAVE_POLL)
-    aeron_free(poller->pollfds);
-#endif
+
     return 0;
 }
 
 int aeron_udp_transport_poller_add(aeron_udp_transport_poller_t *poller, aeron_udp_channel_transport_t *transport)
 {
     int ensure_capacity_result = 0;
-    size_t old_capacity = poller->transports.capacity, index = poller->transports.length;
+    size_t index = poller->transports.length;
 
     AERON_ARRAY_ENSURE_CAPACITY(ensure_capacity_result, poller->transports, aeron_udp_channel_transport_entry_t);
     if (ensure_capacity_result < 0)
@@ -67,45 +65,6 @@ int aeron_udp_transport_poller_add(aeron_udp_transport_poller_t *poller, aeron_u
     }
 
     poller->transports.array[index].transport = transport;
-
-#if defined(HAVE_EPOLL)
-    size_t new_capacity = poller->transports.capacity;
-
-    if (new_capacity > old_capacity)
-    {
-        if (aeron_array_ensure_capacity((uint8_t **)&poller->epoll_events, sizeof(struct epoll_event), old_capacity, new_capacity) < 0)
-        {
-            return -1;
-        }
-    }
-
-    struct epoll_event event;
-
-    event.data.fd = transport->fd;
-    event.data.ptr = transport;
-    event.events = EPOLLIN;
-    int result = epoll_ctl(poller->epoll_fd, EPOLL_CTL_ADD, transport->fd, &event);
-    if (result < 0)
-    {
-        aeron_set_err(errno, "epoll_ctl(EPOLL_CTL_ADD): %s", strerror(errno));
-        return -1;
-    }
-
-#elif defined(HAVE_POLL)
-    size_t new_capacity = poller->transports.capacity;
-
-    if (new_capacity > old_capacity)
-    {
-        if (aeron_array_ensure_capacity((uint8_t **)&poller->pollfds, sizeof(struct pollfd), old_capacity, new_capacity) < 0)
-        {
-            return -1;
-        }
-    }
-
-    poller->pollfds[index].fd = transport->fd;
-    poller->pollfds[index].events = POLLIN;
-    poller->pollfds[index].revents = 0;
-#endif
 
     poller->transports.length++;
 
@@ -133,36 +92,15 @@ int aeron_udp_transport_poller_remove(aeron_udp_transport_poller_t *poller, aero
             (size_t)index,
             (size_t)last_index);
 
-#if defined(HAVE_EPOLL)
-        aeron_array_fast_unordered_remove(
-            (uint8_t *)poller->epoll_events,
-            sizeof(struct epoll_event),
-            (size_t)index,
-            (size_t)last_index);
-
-        struct epoll_event event;
-
-        event.data.fd = transport->fd;
-        event.data.ptr = transport;
-        event.events = EPOLLIN;
-        int result = epoll_ctl(poller->epoll_fd, EPOLL_CTL_DEL, transport->fd, &event);
-        if (result < 0)
-        {
-            aeron_set_err(errno, "epoll_ctl(EPOLL_CTL_DEL): %s", strerror(errno));
-            return -1;
-        }
-
-#elif defined(HAVE_POLL)
-        aeron_array_fast_unordered_remove(
-            (uint8_t *)poller->pollfds,
-            sizeof(struct pollfd),
-            (size_t)index,
-            (size_t)last_index);
-#endif
         poller->transports.length--;
     }
 
     return 0;
+}
+
+bool is_matching_transport(uint32_t addr, uint16_t port, struct sockaddr_in* storage)
+{
+    return storage->sin_addr.s_addr == addr && storage->sin_port == port;
 }
 
 int aeron_udp_transport_poller_poll(
@@ -172,105 +110,76 @@ int aeron_udp_transport_poller_poll(
     aeron_udp_transport_recv_func_t recv_func,
     void *clientd)
 {
-    int work_count = 0;
+    const uint16_t num_mbufs = 32;
+    struct rte_mbuf* mbufs[num_mbufs];
 
-    if (poller->transports.length <= AERON_UDP_TRANSPORT_POLLER_ITERATION_THRESHOLD)
+    const uint16_t port_id = aeron_dpdk_get_port_id(poller->dpdk_context);
+
+    uint16_t num_pkts = rte_eth_rx_burst(port_id, 0, mbufs, num_mbufs);
+
+    for (int i = 0; i < num_pkts; i++)
     {
-        for (size_t i = 0, length = poller->transports.length; i < length; i++)
-        {
-            int recv_result = aeron_udp_channel_transport_recvmmsg(
-                poller->transports.array[i].transport, msgvec, vlen, recv_func, clientd);
-            if (recv_result < 0)
-            {
-                return recv_result;
-            }
+        struct rte_mbuf* m = mbufs[i];
+        struct ether_hdr* eth_hdr;
+        eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
+        rte_pktmbuf_pkt_len(m);
+        rte_pktmbuf_data_len(m);
 
-            work_count += recv_result;
-        }
-    }
-    else
-    {
-#if defined(HAVE_EPOLL)
-        int result = epoll_wait(poller->epoll_fd, poller->epoll_events, (int)poller->transports.length, 0);
+        const uint16_t frame_type = rte_be_to_cpu_16(eth_hdr->ether_type);
+        struct ipv4_hdr* ip_hdr;
 
-        if (result < 0)
-        {
-            int err = errno;
+        struct sockaddr_storage msg_name;
+        memset(&msg_name, 1, sizeof(msg_name));
 
-            if (EINTR == err || EAGAIN == err)
-            {
-                return 0;
-            }
+        switch (frame_type)
+        {
+            case ETHER_TYPE_IPv4:
 
-            aeron_set_err(err, "epoll_wait: %s", strerror(err));
-            return -1;
-        }
-        else if (0 == result)
-        {
-            return 0;
-        }
-        else
-        {
-            for (size_t i = 0, length = result; i < length; i++)
-            {
-                if (poller->epoll_events[i].events & EPOLLIN)
+                ip_hdr = (struct ipv4_hdr*) ((uint8_t*) eth_hdr + sizeof(struct ether_hdr));
+
+                if (IPPROTO_UDP == ip_hdr->next_proto_id)
                 {
-                    int recv_result = aeron_udp_channel_transport_recvmmsg(
-                        poller->epoll_events[i].data.ptr, msgvec, vlen, recv_func, clientd);
+                    int ipv4_hdr_len = (ip_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
+                    struct udp_hdr* udp_hdr = (struct udp_hdr*) ((uint8_t*) ip_hdr) + ipv4_hdr_len;
+                    uint8_t* msg_data = ((uint8_t*) udp_hdr) + sizeof(struct udp_hdr);
+                    const size_t msg_len = ip_hdr->total_length - (sizeof(struct udp_hdr) + ipv4_hdr_len);
 
-                    if (recv_result < 0)
+                    struct sockaddr_in* in_addr = (struct sockaddr_in*) &msg_name;
+                    in_addr->sin_family = AF_INET;
+                    in_addr->sin_port = udp_hdr->src_port;
+                    in_addr->sin_addr.s_addr = ip_hdr->src_addr;
+
+                    // TODO: Sanity check the packet length and the data length.
+
+                    const int last_index = (int)poller->transports.length - 1;
+                    for (int j = last_index; j >= 0; j--)
                     {
-                        return recv_result;
+                        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
+                        if (is_matching_transport(
+                            ip_hdr->dst_addr, udp_hdr->dst_port,
+                            (struct sockaddr_in*) &transport->bind_addr))
+                        {
+                            recv_func(
+                                clientd, transport->dispatch_clientd,
+                                msg_data, msg_len,
+                                &msg_name);
+                        }
                     }
-
-                    work_count += recv_result;
+                }
+                else
+                {
+                    // push over to aeron_dpdk
                 }
 
-                poller->epoll_events[i].events = 0;
-            }
+                break;
+
+            default:
+                // push over to aeron_dpdk
+                break;
         }
 
-#elif defined(HAVE_POLL)
-        int result = poll(poller->pollfds, (nfds_t)poller->transports.length, 0);
 
-        if (result < 0)
-        {
-            int err = errno;
-
-            if (EINTR == err || EAGAIN == err)
-            {
-                return 0;
-            }
-
-            aeron_set_err(err, "poll: %s", strerror(err));
-            return -1;
-        }
-        else if (0 == result)
-        {
-            return 0;
-        }
-        else
-        {
-            for (size_t i = 0, length = poller->transports.length; i < length; i++)
-            {
-                if (poller->pollfds[i].revents & POLLIN)
-                {
-                    int recv_result = aeron_udp_channel_transport_recvmmsg(
-                        poller->transports.array[i].transport, msgvec, vlen, recv_func, clientd);
-
-                    if (recv_result < 0)
-                    {
-                        return recv_result;
-                    }
-
-                    work_count += recv_result;
-                }
-
-                poller->pollfds[i].revents = 0;
-            }
-        }
-#endif
     }
 
-    return work_count;
+    return num_pkts;
 }

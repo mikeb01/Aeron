@@ -618,3 +618,22 @@ void aeron_format_source_identity(char *buffer, size_t length, struct sockaddr_s
 
     snprintf(buffer, length, "%s:%d", addr_str, port);
 }
+
+void print_sockaddr(const char* name, struct sockaddr_storage* addr)
+{
+    char buf[INET6_ADDRSTRLEN];
+    memset(buf, INET6_ADDRSTRLEN, sizeof(char));
+
+    if (AF_INET == addr->ss_family)
+    {
+        struct sockaddr_in* in = (struct sockaddr_in*) addr;
+        inet_ntop(in->sin_family, &in->sin_addr, buf, INET_ADDRSTRLEN);
+        printf("%s %s:%d\n", name, buf, ntohs(in->sin_port));
+    }
+    else if (AF_INET6 == addr->ss_family)
+    {
+        struct sockaddr_in6* in = (struct sockaddr_in6*) addr;
+        inet_ntop(in->sin6_family, &in->sin6_addr, buf, INET6_ADDRSTRLEN);
+        printf("%s %s:%d\n", name, buf, ntohs(in->sin6_port));
+    }
+}

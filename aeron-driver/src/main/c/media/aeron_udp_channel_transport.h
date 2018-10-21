@@ -25,6 +25,9 @@ typedef struct aeron_udp_channel_transport_stct
 {
     aeron_fd_t fd;
     void *dispatch_clientd;
+#if defined(USE_DPDK)
+    struct sockaddr_storage bind_addr;
+#endif
 }
 aeron_udp_channel_transport_t;
 
