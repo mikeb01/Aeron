@@ -172,6 +172,12 @@ struct rte_mempool* aeron_dpdk_get_mempool(aeron_dpdk_t* context)
     return context->mbuf_pool;
 }
 
+aeron_spsc_rb_t* aeron_dpdk_get_sender_udp_recv_q(aeron_dpdk_t* aeron_dpdk)
+{
+    return &aeron_dpdk->sender_udp_recv_q;
+}
+
+
 int aeron_dpdk_unhandled_packet(aeron_dpdk_t* aeron_dpdk, const uint8_t* pkt_data, const uint32_t pkt_len)
 {
     struct ether_hdr* eth_hdr = (struct ether_hdr*) pkt_data;

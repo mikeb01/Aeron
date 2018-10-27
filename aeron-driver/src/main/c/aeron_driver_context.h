@@ -28,6 +28,7 @@
 #include "aeron_congestion_control.h"
 #include "aeron_agent.h"
 #ifdef USE_DPDK
+#include "concurrent/aeron_spsc_rb.h"
 #include "media/dpdk/aeron_dpdk_context.h"
 #endif
 

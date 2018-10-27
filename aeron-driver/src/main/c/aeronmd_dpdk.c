@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "concurrent/aeron_spsc_rb.h"
 #include "media/dpdk/aeron_dpdk_context.h"
 #include "aeron_driver_context.h"
 #include "concurrent/aeron_atomic.h"

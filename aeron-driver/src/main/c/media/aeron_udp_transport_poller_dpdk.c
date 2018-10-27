@@ -25,6 +25,7 @@
 #include <rte_ip.h>
 #include <rte_udp.h>
 #include <sys/socket.h>
+#include <concurrent/aeron_spsc_rb.h>
 
 #include "aeron_driver_context.h"
 #include "util/aeron_arrayutil.h"
@@ -191,6 +192,24 @@ int aeron_udp_transport_poller_poll(
     return num_pkts;
 }
 
+typedef struct sender_poll_ctx_stct
+{
+    aeron_udp_transport_poller_t* poller;
+    aeron_udp_transport_recv_func_t recv_func;
+    void* clientd;
+}
+sender_poll_ctx_t;
+
+void handle_sender_udp(int32_t type, const void* data, size_t data_len, void* clientd)
+{
+    sender_poll_ctx_t* sender_poll_ctx = clientd;
+
+    process_ethernet_packet(
+        sender_poll_ctx->poller,
+        data, (uint32_t) data_len,
+        sender_poll_ctx->recv_func, sender_poll_ctx->clientd);
+}
+
 int aeron_udp_transport_poller_poll_for_sender(
     aeron_udp_transport_poller_t *poller,
     struct mmsghdr *msgvec,
@@ -199,11 +218,19 @@ int aeron_udp_transport_poller_poll_for_sender(
     void *clientd)
 {
     // deal with arp.
-    const size_t work_done = aeron_dpdk_handle_other_protocols(poller->dpdk_context);
+    size_t work_done = aeron_dpdk_handle_other_protocols(poller->dpdk_context);
     
     // deal with messages for sender (e.g. sm/nak...)
-    poller->dpdk_context
+    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_sender_udp_recv_q(poller->dpdk_context);
 
+    sender_poll_ctx_t poll_ctx =
+    {
+        .poller = poller,
+        .recv_func = recv_func,
+        .clientd = clientd
+    };
+
+    work_done += aeron_spsc_rb_read(sender_udp_recv_q, handle_sender_udp, &poll_ctx, 100);
 
     return (int) work_done;
 }

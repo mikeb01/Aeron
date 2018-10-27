@@ -19,4 +19,6 @@ int aeron_dpdk_unhandled_packet(aeron_dpdk_t* aeron_dpdk, const uint8_t* pkt_dat
 
 size_t aeron_dpdk_handle_other_protocols(aeron_dpdk_t* aeron_dpdk);
 
+aeron_spsc_rb_t* aeron_dpdk_get_sender_udp_recv_q(aeron_dpdk_t* aeron_dpdk);
+
 #endif //AERON_AERON_DPDK_CONTEXT_H
