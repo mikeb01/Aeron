@@ -68,4 +68,11 @@ int aeron_udp_transport_poller_poll(
     aeron_udp_transport_recv_func_t recv_func,
     void *clientd);
 
+int aeron_udp_transport_poller_poll_for_sender(
+    aeron_udp_transport_poller_t *poller,
+    struct mmsghdr *msgvec,
+    size_t vlen,
+    aeron_udp_transport_recv_func_t recv_func,
+    void *clientd);
+
 #endif //AERON_UDP_TRANSPORT_POLLER_H

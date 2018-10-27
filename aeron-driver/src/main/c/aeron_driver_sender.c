@@ -140,7 +140,7 @@ int aeron_driver_sender_do_work(void *clientd)
             mmsghdr[i].msg_len = 0;
         }
 
-        poll_result = aeron_udp_transport_poller_poll(
+        poll_result = aeron_udp_transport_poller_poll_for_sender(
             &sender->poller,
             mmsghdr,
             AERON_DRIVER_SENDER_NUM_RECV_BUFFERS,

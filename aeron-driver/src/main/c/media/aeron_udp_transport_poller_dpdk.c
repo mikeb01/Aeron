@@ -103,6 +103,68 @@ bool is_matching_transport(uint32_t addr, uint16_t port, struct sockaddr_in* sto
     return storage->sin_addr.s_addr == addr && storage->sin_port == port;
 }
 
+static int process_ethernet_packet(
+    aeron_udp_transport_poller_t *poller,
+    const uint8_t* pkt_data, const uint32_t pkt_len,
+    aeron_udp_transport_recv_func_t recv_func, void *clientd)
+{
+    struct ether_hdr* eth_hdr = (struct ether_hdr*) pkt_data;
+    const uint16_t frame_type = rte_be_to_cpu_16(eth_hdr->ether_type);
+    struct ipv4_hdr* ip_hdr;
+
+    struct sockaddr_storage msg_name;
+    memset(&msg_name, 1, sizeof(msg_name));
+
+    switch (frame_type)
+    {
+        case ETHER_TYPE_IPv4:
+
+            ip_hdr = (struct ipv4_hdr*) ((uint8_t*) eth_hdr + sizeof(struct ether_hdr));
+
+            if (IPPROTO_UDP == ip_hdr->next_proto_id)
+            {
+                int ipv4_hdr_len = (ip_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
+                struct udp_hdr* udp_hdr = (struct udp_hdr*) ((uint8_t*) ip_hdr) + ipv4_hdr_len;
+                uint8_t* msg_data = ((uint8_t*) udp_hdr) + sizeof(struct udp_hdr);
+                const size_t msg_len = ip_hdr->total_length - (sizeof(struct udp_hdr) + ipv4_hdr_len);
+
+                struct sockaddr_in* in_addr = (struct sockaddr_in*) &msg_name;
+                in_addr->sin_family = AF_INET;
+                in_addr->sin_port = udp_hdr->src_port;
+                in_addr->sin_addr.s_addr = ip_hdr->src_addr;
+
+                // TODO: Sanity check the packet length and the data length.
+
+                const int last_index = (int)poller->transports.length - 1;
+                for (int j = last_index; j >= 0; j--)
+                {
+                    aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
+                    if (is_matching_transport(
+                        ip_hdr->dst_addr, udp_hdr->dst_port,
+                        (struct sockaddr_in*) &transport->bind_addr))
+                    {
+                        recv_func(
+                            clientd, transport->dispatch_clientd,
+                            msg_data, msg_len,
+                            &msg_name);
+                    }
+                }
+            }
+            else
+            {
+                aeron_dpdk_unhandled_packet(poller->dpdk_context, pkt_data, pkt_len);
+            }
+
+            break;
+
+        default:
+            aeron_dpdk_unhandled_packet(poller->dpdk_context, pkt_data, pkt_len);
+            break;
+    }
+
+    return 0;
+}
+
 int aeron_udp_transport_poller_poll(
     aeron_udp_transport_poller_t *poller,
     struct mmsghdr *msgvec,
@@ -120,66 +182,28 @@ int aeron_udp_transport_poller_poll(
     for (int i = 0; i < num_pkts; i++)
     {
         struct rte_mbuf* m = mbufs[i];
-        struct ether_hdr* eth_hdr;
-        eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
-        rte_pktmbuf_pkt_len(m);
-        rte_pktmbuf_data_len(m);
+        const uint8_t* pkt_data = rte_pktmbuf_mtod(m, uint8_t*);
+        const uint32_t pkt_len = rte_pktmbuf_pkt_len(m);
 
-        const uint16_t frame_type = rte_be_to_cpu_16(eth_hdr->ether_type);
-        struct ipv4_hdr* ip_hdr;
-
-        struct sockaddr_storage msg_name;
-        memset(&msg_name, 1, sizeof(msg_name));
-
-        switch (frame_type)
-        {
-            case ETHER_TYPE_IPv4:
-
-                ip_hdr = (struct ipv4_hdr*) ((uint8_t*) eth_hdr + sizeof(struct ether_hdr));
-
-                if (IPPROTO_UDP == ip_hdr->next_proto_id)
-                {
-                    int ipv4_hdr_len = (ip_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
-                    struct udp_hdr* udp_hdr = (struct udp_hdr*) ((uint8_t*) ip_hdr) + ipv4_hdr_len;
-                    uint8_t* msg_data = ((uint8_t*) udp_hdr) + sizeof(struct udp_hdr);
-                    const size_t msg_len = ip_hdr->total_length - (sizeof(struct udp_hdr) + ipv4_hdr_len);
-
-                    struct sockaddr_in* in_addr = (struct sockaddr_in*) &msg_name;
-                    in_addr->sin_family = AF_INET;
-                    in_addr->sin_port = udp_hdr->src_port;
-                    in_addr->sin_addr.s_addr = ip_hdr->src_addr;
-
-                    // TODO: Sanity check the packet length and the data length.
-
-                    const int last_index = (int)poller->transports.length - 1;
-                    for (int j = last_index; j >= 0; j--)
-                    {
-                        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
-                        if (is_matching_transport(
-                            ip_hdr->dst_addr, udp_hdr->dst_port,
-                            (struct sockaddr_in*) &transport->bind_addr))
-                        {
-                            recv_func(
-                                clientd, transport->dispatch_clientd,
-                                msg_data, msg_len,
-                                &msg_name);
-                        }
-                    }
-                }
-                else
-                {
-                    // push over to aeron_dpdk
-                }
-
-                break;
-
-            default:
-                // push over to aeron_dpdk
-                break;
-        }
-
-
+        process_ethernet_packet(poller, pkt_data, pkt_len, recv_func, clientd);
     }
 
     return num_pkts;
+}
+
+int aeron_udp_transport_poller_poll_for_sender(
+    aeron_udp_transport_poller_t *poller,
+    struct mmsghdr *msgvec,
+    size_t vlen,
+    aeron_udp_transport_recv_func_t recv_func,
+    void *clientd)
+{
+    // deal with arp.
+    const size_t work_done = aeron_dpdk_handle_other_protocols(poller->dpdk_context);
+    
+    // deal with messages for sender (e.g. sm/nak...)
+    poller->dpdk_context
+
+
+    return (int) work_done;
 }

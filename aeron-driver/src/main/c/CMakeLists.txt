@@ -351,7 +351,7 @@ if (BUILD_AERON_DPDK_DRIVER)
 
     target_compile_definitions(aeronmd_dpdk PUBLIC -DUSE_DPDK)
 
-#    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse4.1 -ggdb")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -msse4.1 -ggdb")
 
     target_link_libraries(
         aeronmd_dpdk

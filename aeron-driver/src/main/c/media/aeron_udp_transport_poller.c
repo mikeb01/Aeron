@@ -281,3 +281,13 @@ int aeron_udp_transport_poller_poll(
 
     return work_count;
 }
+
+int aeron_udp_transport_poller_poll_for_sender(
+    aeron_udp_transport_poller_t *poller,
+    struct mmsghdr *msgvec,
+    size_t vlen,
+    aeron_udp_transport_recv_func_t recv_func,
+    void *clientd)
+{
+    return aeron_udp_transport_poller_poll(poller, msgvec, vlen, recv_func, clientd);
+}
