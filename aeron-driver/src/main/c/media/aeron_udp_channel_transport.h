@@ -26,6 +26,7 @@ typedef struct aeron_udp_channel_transport_stct
     aeron_fd_t fd;
     void *dispatch_clientd;
 #if defined(USE_DPDK)
+    aeron_dpdk_t* aeron_dpdk;
     struct sockaddr_storage bind_addr;
 #endif
 }
@@ -35,6 +36,7 @@ struct mmsghdr;
 
 int aeron_udp_channel_transport_init(
     aeron_udp_channel_transport_t *transport,
+    aeron_driver_context_t *driver_context,
     struct sockaddr_storage *bind_addr,
     struct sockaddr_storage *multicast_if_addr,
     unsigned int multicast_if_index,

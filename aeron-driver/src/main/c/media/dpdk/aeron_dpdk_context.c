@@ -27,11 +27,18 @@ void aeron_dpdk_init_eal(int argc, char** argv)
     }
 }
 
+typedef struct aeron_dpdk_arp_table_entry_stct
+{
+    struct in_addr ip_address;
+    struct ether_addr ethernet_address;
+    int64_t last_query_timestamp_ms;
+} aeron_dpdk_arp_table_entry_t;
+
 struct aeron_dpdk_stct
 {
     uint16_t port_id;
     struct rte_mempool* mbuf_pool;
-    uint32_t local_ipv4_address;
+    struct in_addr local_ipv4_address;
     uint16_t subnet_mask;
     aeron_spsc_rb_t sender_udp_recv_q;
 
@@ -42,6 +49,19 @@ struct aeron_dpdk_stct
     }
     arp;
 };
+
+// TODO: This is bad, should use the shared reference to epoch clock.
+static int64_t epoch_clock()
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) < 0)
+    {
+        return -1;
+    }
+
+    return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
 
 static int alloc_rb(aeron_spsc_rb_t* rb, size_t buffer_size)
 {
@@ -167,6 +187,12 @@ uint16_t aeron_dpdk_get_port_id(aeron_dpdk_t* context)
     return context->port_id;
 }
 
+struct in_addr aeron_dpdk_get_local_addr(aeron_dpdk_t* context)
+{
+    return context->local_ipv4_address;
+}
+
+
 struct rte_mempool* aeron_dpdk_get_mempool(aeron_dpdk_t* context)
 {
     return context->mbuf_pool;
@@ -274,7 +300,7 @@ void send_arp_message(
     arp_msg->arp_pln = 4;
     arp_msg->arp_op = rte_cpu_to_be_16(arp_op);
     arp_msg->arp_data.arp_sha = arp_eth->s_addr;
-    arp_msg->arp_data.arp_sip = aeron_dpdk->local_ipv4_address; // TODO: check byte ordering!!
+    arp_msg->arp_data.arp_sip = aeron_dpdk->local_ipv4_address.s_addr; // TODO: check byte ordering!!
     arp_msg->arp_data.arp_tha = dest_eth_addr;
     arp_msg->arp_data.arp_tip = dest_ip_addr;
 
@@ -312,7 +338,7 @@ static void handle_arp_msg(int32_t type, const void* data, size_t len, void* cli
             arp_table_put(&aeron_dpdk->arp.table, ip, addr);
 
             if (arp_hdr->arp_op == ARP_OP_REQUEST &&
-                arp_hdr->arp_data.arp_tip == aeron_dpdk->local_ipv4_address &&
+                arp_hdr->arp_data.arp_tip == aeron_dpdk->local_ipv4_address.s_addr &&
                 is_zero(arp_hdr->arp_data.arp_tha))
             {
                 send_arp_message(aeron_dpdk, ARP_OP_REPLY, arp_hdr->arp_data.arp_sha, arp_hdr->arp_data.arp_sip);
@@ -324,4 +350,9 @@ static void handle_arp_msg(int32_t type, const void* data, size_t len, void* cli
 size_t aeron_dpdk_handle_other_protocols(aeron_dpdk_t* aeron_dpdk)
 {
     return aeron_spsc_rb_read(&aeron_dpdk->arp.recv_q, handle_arp_msg, aeron_dpdk, 100);
+}
+
+struct ether_addr* aeron_dpdk_arp_lookup(aeron_dpdk_t* aeron_dpdk, uint32_t addr_in)
+{
+    return (struct ether_addr*) aeron_int64_to_ptr_hash_map_get(&aeron_dpdk->arp.table, addr_in);
 }

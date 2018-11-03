@@ -92,6 +92,7 @@ int aeron_send_channel_endpoint_create(
 
     if (aeron_udp_channel_transport_init(
         &_endpoint->transport,
+        context,
         (channel->multicast) ? &channel->remote_control : &channel->local_control,
         (channel->multicast) ? &channel->local_control : &channel->remote_control,
         channel->interface_index,

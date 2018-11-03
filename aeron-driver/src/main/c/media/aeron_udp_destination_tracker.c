@@ -19,6 +19,11 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "concurrent/aeron_spsc_rb.h"
+#include "media/dpdk/aeron_dpdk_context.h"
 #include "protocol/aeron_udp_protocol.h"
 #include "util/aeron_netutil.h"
 #include "util/aeron_arrayutil.h"

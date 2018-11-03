@@ -71,6 +71,7 @@ int aeron_receive_channel_endpoint_create(
 
     if (aeron_udp_channel_transport_init(
         &_endpoint->transport,
+        context,
         &channel->remote_data,
         &channel->local_data,
         channel->interface_index,

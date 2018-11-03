@@ -33,6 +33,7 @@
 #include <errno.h>
 #include "util/aeron_error.h"
 #include "util/aeron_netutil.h"
+#include "aeron_driver_context.h"
 #include "aeron_udp_channel_transport.h"
 #include "concurrent/aeron_thread.h"
 
@@ -46,6 +47,7 @@ struct mmsghdr
 
 int aeron_udp_channel_transport_init(
     aeron_udp_channel_transport_t *transport,
+    aeron_driver_context_t *driver_context,
     struct sockaddr_storage *bind_addr,
     struct sockaddr_storage *multicast_if_addr,
     unsigned int multicast_if_index,
