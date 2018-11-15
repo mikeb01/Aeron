@@ -33,6 +33,10 @@
 #include "media/aeron_udp_channel_transport.h"
 #include "media/aeron_udp_transport_poller.h"
 
+#ifdef USE_DPDK
+#include "media/dpdk/aeron_dpdk_messaging.h"
+#endif
+
 int aeron_udp_transport_poller_init(
     aeron_driver_context_t* driver_context,
     aeron_udp_transport_poller_t* poller)

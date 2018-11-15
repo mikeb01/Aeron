@@ -35,6 +35,10 @@
 #include "aeron_driver_context.h"
 #include "aeron_udp_channel_transport.h"
 
+#ifdef USE_DPDK
+#include "media/dpdk/aeron_dpdk_messaging.h"
+#endif
+
 #if !defined(HAVE_STRUCT_MMSGHDR)
 struct mmsghdr
 {
