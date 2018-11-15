@@ -20,7 +20,7 @@
 #include "collections/aeron_int64_to_ptr_hash_map.h"
 #include "concurrent/aeron_spsc_rb.h"
 
-#include "aeron_dpdk_context.h"
+#include "aeron_dpdk.h"
 
 void aeron_dpdk_init_eal(int argc, char** argv)
 {

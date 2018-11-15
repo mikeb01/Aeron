@@ -23,7 +23,7 @@
 #include <stdint.h>
 
 #include "concurrent/aeron_spsc_rb.h"
-#include "media/dpdk/aeron_dpdk_context.h"
+#include "media/dpdk/aeron_dpdk.h"
 #include "protocol/aeron_udp_protocol.h"
 #include "util/aeron_netutil.h"
 #include "util/aeron_arrayutil.h"

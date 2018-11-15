@@ -29,7 +29,7 @@
 #include "aeron_agent.h"
 #ifdef USE_DPDK
 #include "concurrent/aeron_spsc_rb.h"
-#include "media/dpdk/aeron_dpdk_context.h"
+#include "media/dpdk/aeron_dpdk.h"
 #endif
 
 #define AERON_CNC_FILE "cnc.dat"
