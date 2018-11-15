@@ -385,6 +385,13 @@ int aeron_udp_channel_transport_sendmsg(
     return (int)sendmsg_result;
 }
 
+int aeron_udp_channel_transport_sendmsg_for_receiver(
+    aeron_udp_channel_transport_t* transport,
+    struct msghdr* message)
+{
+    return aeron_udp_channel_transport_sendmsg(transport, message);
+}
+
 int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *transport, size_t *so_rcvbuf)
 {
     socklen_t len = sizeof(size_t);

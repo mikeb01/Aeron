@@ -133,7 +133,7 @@ int aeron_receive_channel_endpoint_delete(
 
 int aeron_receive_channel_endpoint_sendmsg(aeron_receive_channel_endpoint_t *endpoint, struct msghdr *msghdr)
 {
-    return aeron_udp_channel_transport_sendmsg(&endpoint->transport, msghdr);
+    return aeron_udp_channel_transport_sendmsg_for_receiver(&endpoint->transport, msghdr);
 }
 
 int aeron_receive_channel_endpoint_send_sm(

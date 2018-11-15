@@ -200,7 +200,7 @@ typedef struct sender_poll_ctx_stct
 }
 sender_poll_ctx_t;
 
-void handle_sender_udp(int32_t type, const void* data, size_t data_len, void* clientd)
+void handle_sender_udp_inbound(int32_t type, const void* data, size_t data_len, void* clientd)
 {
     sender_poll_ctx_t* sender_poll_ctx = clientd;
 
@@ -208,6 +208,11 @@ void handle_sender_udp(int32_t type, const void* data, size_t data_len, void* cl
         sender_poll_ctx->poller,
         data, (uint32_t) data_len,
         sender_poll_ctx->recv_func, sender_poll_ctx->clientd);
+}
+
+void handle_receiver_udp_outbound(int32_t type, const void* data, size_t data_len, void* clientd)
+{
+    aeron_dpdk_send_ipv4((aeron_dpdk_t*) clientd, data, (uint16_t) data_len);
 }
 
 int aeron_udp_transport_poller_poll_for_sender(
@@ -230,7 +235,11 @@ int aeron_udp_transport_poller_poll_for_sender(
         .clientd = clientd
     };
 
-    work_done += aeron_spsc_rb_read(sender_udp_recv_q, handle_sender_udp, &poll_ctx, 100);
+    work_done += aeron_spsc_rb_read(sender_udp_recv_q, handle_sender_udp_inbound, &poll_ctx, 100);
+
+    // deal with receiver messages that need to be sent
+    aeron_spsc_rb_t* receiver_udp_send_q = aeron_dpdk_get_receiver_udp_send_q(poller->dpdk_context);
+    work_done += aeron_spsc_rb_read(receiver_udp_send_q, handle_receiver_udp_outbound, poller->dpdk_context, 100);
 
     return (int) work_done;
 }

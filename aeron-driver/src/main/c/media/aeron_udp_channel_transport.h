@@ -64,6 +64,10 @@ int aeron_udp_channel_transport_sendmsg(
     aeron_udp_channel_transport_t *transport,
     struct msghdr *message);
 
+int aeron_udp_channel_transport_sendmsg_for_receiver(
+    aeron_udp_channel_transport_t *transport,
+    struct msghdr *message);
+
 int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *transport, size_t *so_rcvbuf);
 
 #endif //AERON_UDP_CHANNEL_TRANSPORT_H

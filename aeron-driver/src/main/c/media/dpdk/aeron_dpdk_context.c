@@ -2,7 +2,10 @@
 // Created by barkerm on 3/10/18.
 //
 
+#define _GNU_SOURCE
+
 #include <stdint.h>
+#include <sys/socket.h>
 
 #include <rte_eal.h>
 #include <rte_debug.h>
@@ -41,6 +44,7 @@ struct aeron_dpdk_stct
     struct in_addr local_ipv4_address;
     uint16_t subnet_mask;
     aeron_spsc_rb_t sender_udp_recv_q;
+    aeron_spsc_rb_t receiver_udp_send_q;
 
     struct aeron_dpdk_arp_stct
     {
@@ -169,15 +173,21 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         fprintf(stderr, "Unable to allocate ring buffer for arp messages\n");
         return -1;
     }
+    aeron_int64_to_ptr_hash_map_init(&(*context)->arp.table, 16, 0.6f);
 
     rc = alloc_rb(&(*context)->sender_udp_recv_q, 1 << 20);
     if (rc < 0)
     {
-        fprintf(stderr, "Unable to allocate ring buffer for sender messages\n");
+        fprintf(stderr, "Unable to allocate ring buffer for messages inbound for sender\n");
         return -1;
     }
 
-    aeron_int64_to_ptr_hash_map_init(&(*context)->arp.table, 16, 0.6f);
+    rc = alloc_rb(&(*context)->receiver_udp_send_q, 1 << 20);
+    if (rc < 0)
+    {
+        fprintf(stderr, "Unable to allocate ring buffer for message outbound for receiver\n");
+        return -1;
+    }
 
     return 0;
 }
@@ -203,6 +213,10 @@ aeron_spsc_rb_t* aeron_dpdk_get_sender_udp_recv_q(aeron_dpdk_t* aeron_dpdk)
     return &aeron_dpdk->sender_udp_recv_q;
 }
 
+aeron_spsc_rb_t* aeron_dpdk_get_receiver_udp_send_q(aeron_dpdk_t* aeron_dpdk)
+{
+    return &aeron_dpdk->receiver_udp_send_q;
+}
 
 int aeron_dpdk_unhandled_packet(aeron_dpdk_t* aeron_dpdk, const uint8_t* pkt_data, const uint32_t pkt_len)
 {
@@ -355,4 +369,260 @@ size_t aeron_dpdk_handle_other_protocols(aeron_dpdk_t* aeron_dpdk)
 struct ether_addr* aeron_dpdk_arp_lookup(aeron_dpdk_t* aeron_dpdk, uint32_t addr_in)
 {
     return (struct ether_addr*) aeron_int64_to_ptr_hash_map_get(&aeron_dpdk->arp.table, addr_in);
+}
+
+static void set_l2_for_ipv4_udp_pkt(
+    struct ether_hdr* dst,
+    const struct ether_addr* dst_ether_addr,
+    const struct ether_addr* src_ether_addr)
+{
+    dst->d_addr = (*dst_ether_addr);
+    dst->s_addr = (*src_ether_addr);
+    dst->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+}
+
+static void set_l3_for_ipv4_udp_pkt(
+    struct ipv4_hdr* udp_ip,
+    const struct sockaddr_in* dst_addr,
+    const struct sockaddr_in* src_addr,
+    uint16_t ip_total_len)
+{
+    udp_ip->version_ihl = 0x45;
+    udp_ip->type_of_service = 0;
+    udp_ip->total_length = rte_cpu_to_be_16(ip_total_len);
+    udp_ip->packet_id = rte_cpu_to_be_16(1);
+    udp_ip->fragment_offset = rte_cpu_to_be_16(0);
+    udp_ip->time_to_live = 64;
+    udp_ip->next_proto_id = 17;
+    udp_ip->hdr_checksum = rte_cpu_to_be_16(0);
+    udp_ip->src_addr = src_addr->sin_addr.s_addr;
+    udp_ip->dst_addr = dst_addr->sin_addr.s_addr;
+}
+
+static void set_l4_for_ipv4_udp_pkt(
+    struct udp_hdr* udp_udp,
+    const struct sockaddr_in* dst_addr,
+    const struct sockaddr_in* src_addr,
+    size_t src_data_len,
+    uint16_t checksum)
+{
+    udp_udp->src_port = src_addr->sin_port;
+    udp_udp->dst_port = dst_addr->sin_port;
+    udp_udp->dgram_len = rte_cpu_to_be_16(sizeof(struct udp_hdr) + src_data_len);
+    udp_udp->dgram_cksum = checksum;
+}
+
+static void set_ipv4_udp_pkt(
+    void* dst,
+    const struct sockaddr_in* dst_addr,
+    const struct ether_addr* dst_ether_addr,
+    const struct sockaddr_in* src_addr,
+    const struct ether_addr* src_ether_addr,
+    const char* src_data,
+    size_t src_data_len)
+{
+    struct ether_hdr* udp_eth = dst;
+    struct ipv4_hdr* udp_ip = (struct ipv4_hdr*) ((char*) udp_eth + sizeof(struct ether_hdr));
+    struct udp_hdr* udp_udp = (struct udp_hdr*) ((char*) udp_ip + sizeof(struct ipv4_hdr));
+
+    set_l2_for_ipv4_udp_pkt(udp_eth, dst_ether_addr, src_ether_addr);
+
+    const uint16_t ip_total_len = sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + src_data_len;
+    set_l3_for_ipv4_udp_pkt(udp_ip, dst_addr, src_addr, ip_total_len);
+
+    uint16_t checksum = rte_ipv4_phdr_cksum(udp_ip, PKT_TX_IPV4 | PKT_TX_UDP_CKSUM | PKT_TX_IP_CKSUM);
+    set_l4_for_ipv4_udp_pkt(udp_udp, dst_addr, src_addr, src_data_len, checksum);
+
+    char* udp_payload = (char*) udp_udp  + sizeof(struct udp_hdr);
+    rte_memcpy(udp_payload, src_data, src_data_len);
+}
+
+static void set_mbuf(struct rte_mbuf* udp_pkt, size_t data_len)
+{
+    const uint16_t ip_total_len = sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + data_len;
+    const uint16_t pkt_size = sizeof(struct ether_hdr) + ip_total_len;
+
+    udp_pkt->data_len = pkt_size;
+    udp_pkt->pkt_len = pkt_size;
+    udp_pkt->l2_len = sizeof(struct ether_hdr);
+    udp_pkt->l3_len = sizeof(struct ipv4_hdr);
+    udp_pkt->l4_len = sizeof(struct udp_hdr);
+    udp_pkt->ol_flags = PKT_TX_IPV4 | PKT_TX_UDP_CKSUM | PKT_TX_IP_CKSUM;
+}
+
+int aeron_dpdk_sendmsg(
+    aeron_dpdk_t* aeron_dpdk,
+    const struct sockaddr_in* bind_addr,
+    const struct msghdr *message)
+{
+    struct rte_mbuf* buf;
+    struct rte_mempool* mempool = aeron_dpdk_get_mempool(aeron_dpdk);
+    const uint16_t port_id = aeron_dpdk_get_port_id(aeron_dpdk);
+    const struct sockaddr_in* dest_addr = message->msg_name;
+
+    // Aeron only uses iov len 1.
+    if (message->msg_iovlen > 1)
+    {
+        return -EINVAL;
+    }
+
+    if (AF_INET != dest_addr->sin_family)
+    {
+        // We only support IPv4 ATM.
+        return -1;
+    }
+
+    struct ether_addr* dest_ether_addr = aeron_dpdk_arp_lookup(aeron_dpdk, dest_addr->sin_addr.s_addr);
+    struct ether_addr src_ether_addr;
+    rte_eth_macaddr_get(port_id, &src_ether_addr);
+
+    if (NULL == dest_ether_addr)
+    {
+        // TOOD send arp request.
+        return -1;
+    }
+
+    buf = rte_pktmbuf_alloc(mempool);
+
+    set_mbuf(buf, message->msg_iov[0].iov_len);
+
+    void* pkt = rte_pktmbuf_mtod(buf, void*);
+
+    set_ipv4_udp_pkt(
+        pkt, dest_addr, dest_ether_addr, bind_addr, &src_ether_addr,
+        message->msg_iov[0].iov_base, message->msg_iov[0].iov_len);
+
+    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 1, &buf, 1);
+
+    return (int) (pkts_sent == 0 ? 0 : message->msg_iov[0].iov_len);
+}
+
+int aeron_dpdk_sendmmsg(
+    aeron_dpdk_t* aeron_dpdk,
+    const struct sockaddr_in* bind_addr,
+    const struct mmsghdr *msgvec,
+    size_t vlen)
+{
+    struct rte_mbuf* bufs[32];
+    struct rte_mempool* mempool = aeron_dpdk_get_mempool(aeron_dpdk);
+    const uint16_t port_id = aeron_dpdk_get_port_id(aeron_dpdk);
+
+    uint16_t messages = (uint16_t) (vlen < 32 ? vlen : 32);
+
+    for (size_t msg_i = 0; msg_i < messages; msg_i++)
+    {
+        struct msghdr* msg = &msgvec[msg_i].msg_hdr;
+        const struct sockaddr_in* dest_addr = msg->msg_name;
+
+        // Aeron only uses iov len 1.
+        if (msg->msg_iovlen > 1)
+        {
+            return -EINVAL;
+        }
+
+        if (AF_INET != dest_addr->sin_family)
+        {
+            // We only support IPv4 ATM.
+            return -1;
+        }
+
+
+        struct ether_addr* dest_ether_addr = aeron_dpdk_arp_lookup(aeron_dpdk, dest_addr->sin_addr.s_addr);
+        struct ether_addr src_ether_addr;
+        rte_eth_macaddr_get(port_id, &src_ether_addr);
+
+        if (NULL == dest_ether_addr)
+        {
+            // TOOD send arp request.
+            return -1;
+        }
+
+        bufs[msg_i] = rte_pktmbuf_alloc(mempool);
+
+        set_mbuf(bufs[msg_i], msg->msg_iov[0].iov_len);
+
+        void* pkt = rte_pktmbuf_mtod(bufs[msg_i], void*);
+
+        set_ipv4_udp_pkt(
+            pkt, dest_addr, dest_ether_addr, bind_addr, &src_ether_addr,
+            msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
+    }
+
+    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 1, bufs, messages);
+
+    return pkts_sent;
+}
+
+int aeron_dpdk_sendmsg_for_receiver(
+    aeron_dpdk_t* aeron_dpdk,
+    const struct sockaddr_in* bind_addr,
+    const struct msghdr *message)
+{
+    const struct sockaddr_in* dst_addr = message->msg_name;
+    const size_t src_data_len = message->msg_iov[0].iov_len;
+
+    const uint8_t internal_msg[8192]; // TODO: this will need to be smaller than network MTU, but 8K should be enough.
+
+    // Aeron only uses iov len 1.
+    if (message->msg_iovlen > 1)
+    {
+        return -EINVAL;
+    }
+
+    if (AF_INET != dst_addr->sin_family)
+    {
+        // We only support IPv4 ATM.
+        return -1;
+    }
+
+    const uint16_t ip_total_len = sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + src_data_len;
+
+    struct ipv4_hdr* udp_ip = (struct ipv4_hdr*) ((char*) internal_msg + sizeof(struct ether_hdr));
+    set_l3_for_ipv4_udp_pkt(udp_ip, dst_addr, bind_addr, ip_total_len);
+
+    uint16_t checksum = rte_ipv4_phdr_cksum(udp_ip, PKT_TX_IPV4 | PKT_TX_UDP_CKSUM | PKT_TX_IP_CKSUM);
+    struct udp_hdr* udp_udp = (struct udp_hdr*) ((char*) udp_ip + sizeof(struct ipv4_hdr));
+    set_l4_for_ipv4_udp_pkt(udp_udp, dst_addr, bind_addr, src_data_len, checksum);
+
+    char* udp_payload = (char*) udp_udp  + sizeof(struct udp_hdr);
+    rte_memcpy(udp_payload, message->msg_iov[0].iov_base, src_data_len);
+
+    const aeron_rb_write_result_t result = aeron_spsc_rb_write(&aeron_dpdk->receiver_udp_send_q, 0, internal_msg, ip_total_len);
+
+    return (int) (AERON_RB_SUCCESS == result ? src_data_len : result);
+}
+
+int aeron_dpdk_send_ipv4(aeron_dpdk_t* aeron_dpdk, const char* packet, uint16_t ip_total_len)
+{
+    struct rte_mbuf* buf;
+    struct rte_mempool* mempool = aeron_dpdk_get_mempool(aeron_dpdk);
+    const uint16_t port_id = aeron_dpdk_get_port_id(aeron_dpdk);
+
+    buf = rte_pktmbuf_alloc(mempool);
+    struct ether_hdr* pkt = rte_pktmbuf_mtod(buf, struct ether_hdr*);
+
+    set_mbuf(buf, ip_total_len - (sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr)));
+
+    struct ipv4_hdr* ipv4_hdr_src = (struct ipv4_hdr*) packet;
+
+    struct ether_addr* dest_ether_addr = aeron_dpdk_arp_lookup(aeron_dpdk, ipv4_hdr_src->dst_addr);
+    struct ether_addr src_ether_addr;
+    rte_eth_macaddr_get(port_id, &src_ether_addr);
+
+    if (NULL == dest_ether_addr)
+    {
+        // TOOD send arp request.
+        return -1;
+    }
+
+    set_l2_for_ipv4_udp_pkt(pkt, dest_ether_addr, &src_ether_addr);
+
+    struct ipv4_hdr* ipv4_hdr_dst = (struct ipv4_hdr*) (char *) pkt + sizeof(struct ether_hdr);
+
+    rte_memcpy(ipv4_hdr_dst, ipv4_hdr_src, ip_total_len);
+
+    rte_eth_tx_burst(port_id, 0, &buf, 1);
+
+    return 1;
+
 }
