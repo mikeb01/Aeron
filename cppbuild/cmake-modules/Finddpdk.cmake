@@ -19,7 +19,7 @@ find_path(DPDK_INCLUDE_DIR rte_config.h
     HINTS $ENV{RTE_SDK}/$ENV{RTE_TARGET}/include)
 
 set(components
-    acl bbdev bitratestats bus_pci bus_vdev cfgfile cmdline
+    acl bbdev bitratestats bus_pci bus_vdev cfgfile cmdline common_octeontx
     cryptodev distributor eal efd ethdev eventdev flow_classify gro gso hash
     ip_frag jobstats kni kvargs latencystats lpm mbuf member mempool mempool_octeontx
     mempool_ring mempool_stack meter metrics net pci pdump pipeline pmd_af_packet
