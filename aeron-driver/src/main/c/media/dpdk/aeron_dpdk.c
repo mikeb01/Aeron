@@ -74,12 +74,14 @@ static int64_t epoch_clock()
 static int alloc_rb(aeron_spsc_rb_t* rb, size_t buffer_size)
 {
     void* arp_buffer;
-    if (aeron_alloc(&arp_buffer, buffer_size) < 0)
+    size_t rb_length = aeron_spsc_rb_calculate_length(buffer_size);
+
+    if (aeron_alloc(&arp_buffer, rb_length) < 0)
     {
         return -1;
     }
 
-    return aeron_spsc_rb_init(rb, arp_buffer, buffer_size);
+    return aeron_spsc_rb_init(rb, arp_buffer, rb_length);
 }
 
 int aeron_dpdk_init(aeron_dpdk_t** context)
@@ -88,9 +90,9 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
     uint16_t num_rxd = 1024;
     uint16_t num_txd = 1024;
 
-    *context = (aeron_dpdk_t*) rte_zmalloc("aeron_dpdk_context", sizeof(aeron_dpdk_t), 0);
+    aeron_dpdk_t* _context = (aeron_dpdk_t*) rte_zmalloc("aeron_dpdk_context", sizeof(aeron_dpdk_t), 0);
 
-    if (NULL == *context)
+    if (NULL == _context)
     {
         fprintf(stderr, "FATAL: Failed to allocate context\n");
         return -1;
@@ -171,31 +173,33 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         "INFO: Using DPDK port: %d, driver: %s, rx_qs: %d, tx_qs: %d, speed: %dMbits/s, link: %s\n",
         port_id, info.driver_name, info.max_rx_queues, info.max_tx_queues, status.link_speed, status.link_status == 1 ? "UP" : "DOWN");
 
-    rc = alloc_rb(&(*context)->arp.recv_q, 1 << 20);
+    rc = alloc_rb(&(_context)->arp.recv_q, 1 << 20);
     if (rc < 0)
     {
-        fprintf(stderr, "Unable to allocate ring buffer for arp messages\n");
-        return -1;
+        fprintf(stderr, "Unable to allocate ring buffer for arp messages: %d\n", rc);
+        abort();
     }
-    aeron_int64_to_ptr_hash_map_init(&(*context)->arp.index, 16, 0.6f);
+    aeron_int64_to_ptr_hash_map_init(&(_context)->arp.index, 16, 0.6f);
 
-    (*context)->arp.table = calloc(16, sizeof(aeron_dpdk_arp_table_entry_t));
-    (*context)->arp.table_len = 0;
-    (*context)->arp.table_cap = 16;
+    (_context)->arp.table = calloc(16, sizeof(aeron_dpdk_arp_table_entry_t));
+    (_context)->arp.table_len = 0;
+    (_context)->arp.table_cap = 16;
 
-    rc = alloc_rb(&(*context)->sender_udp_recv_q, 1 << 20);
+    rc = alloc_rb(&(_context)->sender_udp_recv_q, 1 << 20);
     if (rc < 0)
     {
         fprintf(stderr, "Unable to allocate ring buffer for messages inbound for sender\n");
         return -1;
     }
 
-    rc = alloc_rb(&(*context)->receiver_udp_send_q, 1 << 20);
+    rc = alloc_rb(&(_context)->receiver_udp_send_q, 1 << 20);
     if (rc < 0)
     {
         fprintf(stderr, "Unable to allocate ring buffer for message outbound for receiver\n");
         return -1;
     }
+
+    *context = _context;
 
     return 0;
 }

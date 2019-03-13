@@ -16,6 +16,11 @@
 
 #include "aeron_spsc_rb.h"
 
+size_t aeron_spsc_rb_calculate_length(size_t desired_capacity)
+{
+    return desired_capacity + AERON_RB_TRAILER_LENGTH;
+}
+
 int aeron_spsc_rb_init(volatile aeron_spsc_rb_t *ring_buffer, void *buffer, size_t length)
 {
     const size_t capacity = length - AERON_RB_TRAILER_LENGTH;

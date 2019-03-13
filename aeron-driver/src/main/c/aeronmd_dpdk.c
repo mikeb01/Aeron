@@ -25,6 +25,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include "concurrent/aeron_spsc_rb.h"
 #include "media/dpdk/aeron_dpdk.h"
@@ -62,11 +63,26 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
+    // TODO, make configurable
+    if (-1 == setgid(1000))
+    {
+        perror("Failed to set group");
+        exit(-1);
+    }
+
+    if (-1 == setuid(1000))
+    {
+        perror("Failed to set user");
+        exit(-1);
+    }
+
     if (aeron_driver_context_init(&context) < 0)
     {
         fprintf(stderr, "ERROR: context init (%d) %s\n", aeron_errcode(), aeron_errmsg());
         goto cleanup;
     }
+
+    context->dpdk_context = aeron_dpdk_context;
 
     if (aeron_driver_init(&driver, context) < 0)
     {

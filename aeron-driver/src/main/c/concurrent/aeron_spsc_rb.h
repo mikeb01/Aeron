@@ -49,6 +49,8 @@ size_t aeron_spsc_rb_read(
     void *clientd,
     size_t message_count_limit);
 
+size_t aeron_spsc_rb_calculate_length(size_t desired_capacity);
+
 int64_t aeron_spsc_rb_next_correlation_id(volatile aeron_spsc_rb_t *ring_buffer);
 
 void aeron_spsc_rb_consumer_heartbeat_time(volatile aeron_spsc_rb_t *ring_buffer, int64_t time);
