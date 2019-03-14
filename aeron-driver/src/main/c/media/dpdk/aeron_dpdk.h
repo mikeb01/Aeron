@@ -5,6 +5,12 @@
 #ifndef AERON_AERON_DPDK_H
 #define AERON_AERON_DPDK_H
 
+/*
+ * IP address to that Aeron DPDK will "bind" to.  Required as it will need to
+ * loopback sends to this address internally.
+ */
+#define AERON_DPDK_LOCAL_ADDRESS_ENV_VAR "AERON_DPDK_LOCAL_ADDRESS"
+
 void aeron_dpdk_init_eal(int argc, char** argv);
 
 struct aeron_dpdk_stct;

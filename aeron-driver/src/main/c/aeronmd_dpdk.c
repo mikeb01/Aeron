@@ -76,6 +76,8 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
+    fprintf(stdout, "INFO: Initialised DPDK context\n");
+
     if (aeron_driver_context_init(&context) < 0)
     {
         fprintf(stderr, "ERROR: context init (%d) %s\n", aeron_errcode(), aeron_errmsg());

@@ -16,6 +16,7 @@
 #include <rte_ip.h>
 #include <aeron_alloc.h>
 #include <rte_arp.h>
+#include <arpa/inet.h>
 
 #include "collections/aeron_int64_to_ptr_hash_map.h"
 #include "concurrent/aeron_spsc_rb.h"
@@ -58,6 +59,7 @@ struct aeron_dpdk_stct
     arp;
 };
 
+
 // TODO: This is bad, should use the shared reference to epoch clock.
 static int64_t epoch_clock()
 {
@@ -96,6 +98,22 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
     {
         fprintf(stderr, "FATAL: Failed to allocate context\n");
         return -1;
+    }
+
+    char* value = NULL;
+
+    if ((value = getenv(AERON_DPDK_LOCAL_ADDRESS_ENV_VAR)))
+    {
+        if (0 == inet_aton(value, &_context->local_ipv4_address))
+        {
+            fprintf(stderr, "FATAL: unable to parse local address: %s\n", value);
+            abort();
+        }
+    }
+    else
+    {
+        fprintf(stderr, "FATAL: No %s specified\n", AERON_DPDK_LOCAL_ADDRESS_ENV_VAR);
+        abort();
     }
 
     struct rte_mempool* mbuf_pool = rte_pktmbuf_pool_create(
