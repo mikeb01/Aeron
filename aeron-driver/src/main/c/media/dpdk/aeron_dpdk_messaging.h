@@ -22,6 +22,7 @@ size_t aeron_dpdk_handle_other_protocols(aeron_dpdk_t* aeron_dpdk);
 
 aeron_spsc_rb_t* aeron_dpdk_get_sender_udp_recv_q(aeron_dpdk_t* aeron_dpdk);
 aeron_spsc_rb_t* aeron_dpdk_get_receiver_udp_send_q(aeron_dpdk_t* aeron_dpdk);
+aeron_spsc_rb_t* aeron_dpdk_get_loopback_q(aeron_dpdk_t* aeron_dpdk);
 
 struct ether_addr* aeron_dpdk_arp_lookup(aeron_dpdk_t* aeron_dpdk, uint32_t addr_in);
 

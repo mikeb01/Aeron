@@ -103,7 +103,7 @@ int aeron_udp_transport_poller_remove(aeron_udp_transport_poller_t *poller, aero
     return 0;
 }
 
-bool is_matching_transport(uint32_t addr, uint16_t port, struct sockaddr_in* storage)
+static bool is_matching_transport(uint32_t addr, uint16_t port, struct sockaddr_in* storage)
 {
     return storage->sin_addr.s_addr == addr && storage->sin_port == port;
 }
@@ -170,12 +170,11 @@ static int process_ethernet_packet(
     return 0;
 }
 
-int aeron_udp_transport_poller_poll(
-    aeron_udp_transport_poller_t *poller,
-    struct mmsghdr *msgvec,
-    size_t vlen,
+static int poll_network(
+    aeron_udp_transport_poller_t* poller,
     aeron_udp_transport_recv_func_t recv_func,
-    void *clientd)
+    void* clientd,
+    uint32_t* total_bytes)
 {
     const uint16_t num_mbufs = 32;
     struct rte_mbuf* mbufs[num_mbufs];
@@ -191,6 +190,57 @@ int aeron_udp_transport_poller_poll(
         const uint32_t pkt_len = rte_pktmbuf_pkt_len(m);
 
         process_ethernet_packet(poller, pkt_data, pkt_len, recv_func, clientd);
+        (*total_bytes) += pkt_len;
+    }
+
+    return num_pkts;
+}
+
+static int poll_loopback(
+    aeron_udp_transport_poller_t* poller,
+    aeron_udp_transport_recv_func_t recv_func,
+    void* clientd,
+    uint32_t* total_bytes)
+{
+    aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(poller->dpdk_context);
+
+    aeron_spsc_rb_read()
+
+    const int last_index = (int)poller->transports.length - 1;
+    for (int j = last_index; j >= 0; j--)
+    {
+        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
+        if (is_matching_transport(
+            ip_hdr->dst_addr, udp_hdr->dst_port,
+            (struct sockaddr_in*) &transport->bind_addr))
+        {
+            recv_func(
+                clientd, transport->dispatch_clientd,
+                msg_data, msg_len,
+                &msg_name);
+        }
+    }
+
+
+    return num_pkts;
+}
+
+int aeron_udp_transport_poller_poll(
+    aeron_udp_transport_poller_t *poller,
+    struct mmsghdr *msgvec,
+    size_t vlen,
+    aeron_udp_transport_recv_func_t recv_func,
+    void *clientd)
+{
+    uint32_t total_len = 0;
+    uint16_t num_pkts;
+
+    poll_network(poller, recv_func, clientd, &total_len);
+
+    msgvec[0].msg_len = total_len;
+    for (int i = 1; i < vlen; i++)
+    {
+        msgvec[i].msg_len = 0;
     }
 
     return num_pkts;

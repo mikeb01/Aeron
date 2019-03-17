@@ -103,7 +103,39 @@ int aeron_udp_channel_transport_sendmmsg(
     struct mmsghdr *msgvec,
     size_t vlen)
 {
-    return aeron_dpdk_sendmmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, msgvec, vlen);
+    // TODO [Mike] look for local ip addresses and send via an internal loop back buffer.
+    struct sockaddr_storage* destination = (struct sockaddr_storage*)msgvec[0].msg_hdr.msg_name;
+
+    if (destination->ss_family != AF_INET)
+    {
+        // Only IPV4 supported.
+        return -1;
+    }
+    else
+    {
+        struct in_addr dest_addr = ((struct sockaddr_in*) destination)->sin_addr;
+        if (aeron_dpdk_get_local_addr(transport->aeron_dpdk).s_addr == dest_addr.s_addr)
+        {
+            size_t total_len = sizeof(vlen);
+            for (size_t i = 0; i < vlen; i++)
+            {
+                total_len += msgvec[i].msg_hdr.msg_namelen;
+
+                for (size_t j = 0; j < msgvec[i].msg_hdr.msg_iovlen; j++)
+                {
+                    total_len += msgvec[i].msg_hdr.msg_iov[j].iov_len;
+                }
+            }
+
+            // Route internally
+            aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(transport->aeron_dpdk);
+            aeron_spsc_rb_write(loopback_q, 0, )
+        }
+        else
+        {
+            return aeron_dpdk_sendmmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, msgvec, vlen);
+        }
+    }
 }
 
 int aeron_udp_channel_transport_sendmsg(

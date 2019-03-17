@@ -47,6 +47,7 @@ struct aeron_dpdk_stct
     uint16_t subnet_mask;
     aeron_spsc_rb_t sender_udp_recv_q;
     aeron_spsc_rb_t receiver_udp_send_q;
+    aeron_spsc_rb_t loopback_udp_q;
 
     struct aeron_dpdk_arp_stct
     {
@@ -217,6 +218,13 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         return -1;
     }
 
+    rc = alloc_rb(&(_context)->loopback_udp_q, 1 << 20);
+    if (rc < 0)
+    {
+        fprintf(stderr, "Unable to allocate ring buffer for loopback from sender to receiver\n");
+        return -1;
+    }
+
     *context = _context;
 
     return 0;
@@ -246,6 +254,11 @@ aeron_spsc_rb_t* aeron_dpdk_get_sender_udp_recv_q(aeron_dpdk_t* aeron_dpdk)
 aeron_spsc_rb_t* aeron_dpdk_get_receiver_udp_send_q(aeron_dpdk_t* aeron_dpdk)
 {
     return &aeron_dpdk->receiver_udp_send_q;
+}
+
+aeron_spsc_rb_t* aeron_dpdk_get_loopback_q(aeron_dpdk_t* aeron_dpdk)
+{
+    return &aeron_dpdk->loopback_udp_q;
 }
 
 int aeron_dpdk_unhandled_packet(aeron_dpdk_t* aeron_dpdk, const uint8_t* pkt_data, const uint32_t pkt_len)
@@ -438,9 +451,12 @@ void aeron_dpdk_arp_submit_query(aeron_dpdk_t* aeron_dpdk, uint32_t addr_in)
 
     const bool sufficient_time_between_requests = now - arp_table_entry->last_query_timestamp_ms > 2000;
 
+    struct in_addr addr;
+    addr.s_addr = addr_in;
+
     DPDK_DEBUG(
-        "Submitting query for: %d, sufficient_time_between_requests: %d\n",
-        addr_in, sufficient_time_between_requests);
+        "Submitting query for: %s, sufficient_time_between_requests: %d\n",
+        inet_ntoa(addr), sufficient_time_between_requests);
 
     if (sufficient_time_between_requests)
     {

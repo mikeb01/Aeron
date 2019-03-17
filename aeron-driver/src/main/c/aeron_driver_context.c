@@ -372,6 +372,8 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
 
     if ((value = getenv(AERON_THREADING_MODE_ENV_VAR)))
     {
+        fprintf(stdout, "Threading mode: %s\n", value);
+
         if (strncmp(value, "SHARED", sizeof("SHARED")) == 0)
         {
             _context->threading_mode = AERON_THREADING_MODE_SHARED;
@@ -613,6 +615,8 @@ int aeron_driver_context_init(aeron_driver_context_t **context)
     _context->receiver_idle_strategy_func = aeron_idle_strategy_load(
         AERON_CONFIG_GETENV_OR_DEFAULT(AERON_RECEIVER_IDLE_STRATEGY_ENV_VAR, "noop"),
         &_context->receiver_idle_strategy_state);
+
+    fprintf(stdout, "IDLE: %s\n", getenv(AERON_SHARED_IDLE_STRATEGY_ENV_VAR));
 
     _context->usable_fs_space_func = _context->perform_storage_checks ?
         aeron_usable_fs_space : aeron_usable_fs_space_disabled;
