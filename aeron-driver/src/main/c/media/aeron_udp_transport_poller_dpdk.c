@@ -196,6 +196,11 @@ static int poll_network(
     return num_pkts;
 }
 
+void poll_loopback_handler(int32_t msg_type, const void * data, size_t len, void * clientd)
+{
+    
+}
+
 static int poll_loopback(
     aeron_udp_transport_poller_t* poller,
     aeron_udp_transport_recv_func_t recv_func,
@@ -206,23 +211,25 @@ static int poll_loopback(
 
     aeron_spsc_rb_read()
 
-    const int last_index = (int)poller->transports.length - 1;
-    for (int j = last_index; j >= 0; j--)
-    {
-        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
-        if (is_matching_transport(
-            ip_hdr->dst_addr, udp_hdr->dst_port,
-            (struct sockaddr_in*) &transport->bind_addr))
-        {
-            recv_func(
-                clientd, transport->dispatch_clientd,
-                msg_data, msg_len,
-                &msg_name);
-        }
-    }
+//    const int last_index = (int)poller->transports.length - 1;
+//    for (int j = last_index; j >= 0; j--)
+//    {
+//        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
+//        if (is_matching_transport(
+//            ip_hdr->dst_addr, udp_hdr->dst_port,
+//            (struct sockaddr_in*) &transport->bind_addr))
+//        {
+//            recv_func(
+//                clientd, transport->dispatch_clientd,
+//                msg_data, msg_len,
+//                &msg_name);
+//        }
+//    }
+//
+//
+//    return num_pkts;
 
-
-    return num_pkts;
+    return 0;
 }
 
 int aeron_udp_transport_poller_poll(
@@ -236,6 +243,7 @@ int aeron_udp_transport_poller_poll(
     uint16_t num_pkts;
 
     poll_network(poller, recv_func, clientd, &total_len);
+
 
     msgvec[0].msg_len = total_len;
     for (int i = 1; i < vlen; i++)

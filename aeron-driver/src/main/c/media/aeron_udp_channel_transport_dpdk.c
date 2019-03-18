@@ -116,20 +116,30 @@ int aeron_udp_channel_transport_sendmmsg(
         struct in_addr dest_addr = ((struct sockaddr_in*) destination)->sin_addr;
         if (aeron_dpdk_get_local_addr(transport->aeron_dpdk).s_addr == dest_addr.s_addr)
         {
-            size_t total_len = sizeof(vlen);
+            aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(transport->aeron_dpdk);
+
             for (size_t i = 0; i < vlen; i++)
             {
-                total_len += msgvec[i].msg_hdr.msg_namelen;
+                assert(msgvec[i].msg_hdr.msg_iovlen == 1);
 
-                for (size_t j = 0; j < msgvec[i].msg_hdr.msg_iovlen; j++)
+                struct iovec vec[4];
+                vec[0].iov_len = sizeof(msgvec[i].msg_hdr.msg_namelen);
+                vec[0].iov_base = &msgvec[i].msg_hdr.msg_namelen;
+                vec[1].iov_len = msgvec[i].msg_hdr.msg_namelen;
+                vec[1].iov_base = msgvec[i].msg_hdr.msg_name;
+                vec[2].iov_len = sizeof(msgvec[i].msg_hdr.msg_iov[0].iov_len);
+                vec[2].iov_base = &msgvec[i].msg_hdr.msg_iov[0].iov_len;
+                vec[3].iov_len = msgvec[i].msg_hdr.msg_iov[0].iov_len;
+                vec[3].iov_base = msgvec[i].msg_hdr.msg_iov[0].iov_base;
+
+                // Route internally
+                if (0 != aeron_spsc_rb_writev(loopback_q, 0, vec, 4))
                 {
-                    total_len += msgvec[i].msg_hdr.msg_iov[j].iov_len;
+                    return -1;
                 }
             }
 
-            // Route internally
-            aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(transport->aeron_dpdk);
-            aeron_spsc_rb_write(loopback_q, 0, )
+            return 0;
         }
         else
         {

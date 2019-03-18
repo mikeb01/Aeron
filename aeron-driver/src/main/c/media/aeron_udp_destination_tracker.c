@@ -22,10 +22,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "concurrent/aeron_spsc_rb.h"
 #include "media/dpdk/aeron_dpdk.h"
 #include "protocol/aeron_udp_protocol.h"
 #include "util/aeron_netutil.h"
+#include "concurrent/aeron_spsc_rb.h"
 #include "util/aeron_arrayutil.h"
 #include "media/aeron_udp_destination_tracker.h"
 
