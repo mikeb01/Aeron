@@ -126,6 +126,8 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         return -1;
     }
 
+    _context->mbuf_pool = mbuf_pool;
+
     const uint16_t port_id = rte_eth_find_next(0);
 
     if (port_id >= RTE_MAX_ETHPORTS)
@@ -235,7 +237,7 @@ uint16_t aeron_dpdk_get_port_id(aeron_dpdk_t* context)
     return context->port_id;
 }
 
-struct in_addr aeron_dpdk_get_local_addr(aeron_dpdk_t* context)
+struct in_addr aeron_dpdk_get_local_addr(const aeron_dpdk_t* context)
 {
     return context->local_ipv4_address;
 }
@@ -256,7 +258,7 @@ aeron_spsc_rb_t* aeron_dpdk_get_receiver_udp_send_q(aeron_dpdk_t* aeron_dpdk)
     return &aeron_dpdk->receiver_udp_send_q;
 }
 
-aeron_spsc_rb_t* aeron_dpdk_get_loopback_q(aeron_dpdk_t* aeron_dpdk)
+aeron_spsc_rb_t* aeron_dpdk_get_recv_loopback(aeron_dpdk_t* aeron_dpdk)
 {
     return &aeron_dpdk->loopback_udp_q;
 }

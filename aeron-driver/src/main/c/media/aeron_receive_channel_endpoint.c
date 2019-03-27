@@ -289,6 +289,8 @@ void aeron_receive_channel_endpoint_dispatch(
         return;
     }
 
+//    DPDK_DEBUG("Received message of type: %d\n", frame_header->type);
+
     switch (frame_header->type)
     {
         case AERON_HDR_TYPE_PAD:

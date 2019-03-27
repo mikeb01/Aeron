@@ -17,6 +17,7 @@
 #if defined(__linux__)
 #define _BSD_SOURCE
 #define _GNU_SOURCE
+
 #endif
 
 #include <unistd.h>
@@ -67,10 +68,12 @@ int aeron_udp_channel_transport_init(
     if (is_multicast)
     {
         aeron_set_err(EINVAL, "multicast not supported on dpdk (yet): %s", strerror(EINVAL));
+        return -1;
     }
     else if (is_ipv6)
     {
         aeron_set_err(EINVAL, "ipv6 not supported on dpdk (yet): %s", strerror(EINVAL));
+        return -1;
     }
     else
     {
@@ -98,12 +101,61 @@ int aeron_udp_channel_transport_recvmmsg(
     return 0;
 }
 
+static int sendmsg_rb(
+    aeron_spsc_rb_t* loopback_q,
+    struct msghdr* message,
+    struct sockaddr_storage* src_addr,
+    size_t src_addr_len)
+{
+    // Copy the message and fake it to look like it was received over a loopback.
+    struct msghdr output_message;
+    memcpy(&output_message, message, sizeof(output_message));
+    // I.e. the msg_name when it get received should match the bind address of the
+    // publication's transport.
+    output_message.msg_controllen = src_addr_len;
+    output_message.msg_control = src_addr;
+
+    aeron_rb_write_result_t retval = aeron_dpdk_write_sendmsg_rb(loopback_q, &output_message);
+
+    if (0 != retval)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int sendmmsg_rb(
+    aeron_spsc_rb_t* loopback_q,
+    struct mmsghdr* msgvec,
+    size_t vlen,
+    struct sockaddr_storage* src_addr,
+    size_t src_addr_len)
+{
+    for (size_t i = 0; i < vlen; i++)
+    {
+        struct msghdr* message = &msgvec[i].msg_hdr;
+
+        if (-1 == sendmsg_rb(loopback_q, message, src_addr, src_addr_len))
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+bool is_local_address(const aeron_dpdk_t* context, struct in_addr* dest_addr)
+{
+    return htonl(INADDR_LOOPBACK) == dest_addr->s_addr
+        || aeron_dpdk_get_local_addr(context).s_addr == dest_addr->s_addr;
+}
+
 int aeron_udp_channel_transport_sendmmsg(
     aeron_udp_channel_transport_t *transport,
     struct mmsghdr *msgvec,
     size_t vlen)
 {
-    // TODO [Mike] look for local ip addresses and send via an internal loop back buffer.
     struct sockaddr_storage* destination = (struct sockaddr_storage*)msgvec[0].msg_hdr.msg_name;
 
     if (destination->ss_family != AF_INET)
@@ -114,36 +166,18 @@ int aeron_udp_channel_transport_sendmmsg(
     else
     {
         struct in_addr dest_addr = ((struct sockaddr_in*) destination)->sin_addr;
-        if (aeron_dpdk_get_local_addr(transport->aeron_dpdk).s_addr == dest_addr.s_addr)
+        DPDK_DEBUG("sending mmsg to: %s\n", inet_ntoa(dest_addr));
+        if (is_local_address(transport->aeron_dpdk, &dest_addr))
         {
-            aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(transport->aeron_dpdk);
-
-            for (size_t i = 0; i < vlen; i++)
-            {
-                assert(msgvec[i].msg_hdr.msg_iovlen == 1);
-
-                struct iovec vec[4];
-                vec[0].iov_len = sizeof(msgvec[i].msg_hdr.msg_namelen);
-                vec[0].iov_base = &msgvec[i].msg_hdr.msg_namelen;
-                vec[1].iov_len = msgvec[i].msg_hdr.msg_namelen;
-                vec[1].iov_base = msgvec[i].msg_hdr.msg_name;
-                vec[2].iov_len = sizeof(msgvec[i].msg_hdr.msg_iov[0].iov_len);
-                vec[2].iov_base = &msgvec[i].msg_hdr.msg_iov[0].iov_len;
-                vec[3].iov_len = msgvec[i].msg_hdr.msg_iov[0].iov_len;
-                vec[3].iov_base = msgvec[i].msg_hdr.msg_iov[0].iov_base;
-
-                // Route internally
-                if (0 != aeron_spsc_rb_writev(loopback_q, 0, vec, 4))
-                {
-                    return -1;
-                }
-            }
-
-            return 0;
+            return sendmmsg_rb(
+                aeron_dpdk_get_recv_loopback(transport->aeron_dpdk),
+                msgvec, vlen,
+                &transport->bind_addr, sizeof(struct sockaddr_in));
         }
         else
         {
-            return aeron_dpdk_sendmmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, msgvec, vlen);
+            return aeron_dpdk_sendmmsg(
+                transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, msgvec, vlen);
         }
     }
 }
@@ -152,19 +186,54 @@ int aeron_udp_channel_transport_sendmsg(
     aeron_udp_channel_transport_t *transport,
     struct msghdr *message)
 {
-    return aeron_dpdk_sendmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, message);
+    struct sockaddr_storage* destination = (struct sockaddr_storage*)message->msg_name;
+
+    if (destination->ss_family != AF_INET)
+    {
+        // Only IPV4 supported.
+        return -1;
+    }
+    else
+    {
+        struct sockaddr_in* const sockaddr_in = (struct sockaddr_in*) destination;
+        struct in_addr dest_addr = sockaddr_in->sin_addr;
+        DPDK_DEBUG("sending msg to: %s:%d\n", inet_ntoa(dest_addr), ntohs(sockaddr_in->sin_port));
+        if (is_local_address(transport->aeron_dpdk, &dest_addr))
+        {
+            return sendmsg_rb(
+                aeron_dpdk_get_recv_loopback(transport->aeron_dpdk),
+                message,
+                &transport->bind_addr, sizeof(struct sockaddr_in));
+        }
+        else
+        {
+            return aeron_dpdk_sendmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, message);
+        }
+    }
 }
 
 int aeron_udp_channel_transport_sendmsg_for_receiver(
     aeron_udp_channel_transport_t* transport,
     struct msghdr* message)
 {
-    return aeron_dpdk_sendmsg_for_receiver(
-        transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, message);
+    struct sockaddr_in* in_addr = (struct sockaddr_in*) message->msg_name;
+    DPDK_DEBUG("Sending msg for receiver: %s:%d\n", inet_ntoa(in_addr->sin_addr), ntohs(in_addr->sin_port));
 
+    // Defensive copy to modify control...
+    struct msghdr output_message;
+    memcpy(&output_message, message, sizeof(output_message));
+    output_message.msg_control = &transport->bind_addr;
+    output_message.msg_controllen = sizeof(struct sockaddr_in);
+
+    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_sender_udp_recv_q(transport->aeron_dpdk);
+
+    return aeron_dpdk_write_sendmsg_rb(sender_udp_recv_q, &output_message);
 }
 
 int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *transport, size_t *so_rcvbuf)
 {
+    // Just making something up as dpdk doesn't have socket buffers.
+    *so_rcvbuf = 1 << 19;
+
     return 0;
 }

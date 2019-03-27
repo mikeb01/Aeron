@@ -108,6 +108,64 @@ static bool is_matching_transport(uint32_t addr, uint16_t port, struct sockaddr_
     return storage->sin_addr.s_addr == addr && storage->sin_port == port;
 }
 
+typedef struct loopback_client_data_stct
+{
+    void* clientd;
+    aeron_udp_transport_recv_func_t recv_func;
+    aeron_udp_transport_poller_t* poller;
+}
+loopback_clientd_t;
+
+/**
+ *
+ * @param poller
+ * @param message Internally this code expects the destination
+ * address to be stored in the msghdr.msg_name this is to find the
+ * local listener.  The control will contain the source address to
+ * be passed to the recv callback to allow messages to be sent
+ * back to the originator.
+ * @param clientd
+ * @return
+ */
+static int handle_received_message(
+    aeron_udp_transport_poller_t* poller,
+    struct msghdr* message,
+    loopback_clientd_t* clientd)
+{
+    int dispatch_count = 0;
+    struct sockaddr_in* dst_addr_in = message->msg_name;
+    struct sockaddr_in* src_addr_in = message->msg_control;
+
+    assert(message->msg_namelen == sizeof(struct sockaddr_in));
+    assert(src_addr_in != NULL);
+    assert(src_addr_in->sin_family == PF_INET);
+    assert(message->msg_controllen == sizeof(struct sockaddr_in));
+    assert(dst_addr_in != NULL);
+    assert(dst_addr_in->sin_family == PF_INET);
+    assert(message->msg_iovlen == 1);
+
+    const int last_index = (int)poller->transports.length - 1;
+    for (int j = last_index; j >= 0; j--)
+    {
+        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
+        if (is_matching_transport(
+            dst_addr_in->sin_addr.s_addr, dst_addr_in->sin_port,
+            (struct sockaddr_in*) &transport->bind_addr))
+        {
+            clientd->recv_func(
+                clientd->clientd, transport->dispatch_clientd,
+                message->msg_iov->iov_base, message->msg_iov->iov_len,
+                (struct sockaddr_storage*) src_addr_in);
+
+            // TODO: break???
+            dispatch_count++;
+        }
+    }
+
+    return dispatch_count;
+}
+
+// TODO: Move to core DPDK code??
 static int process_ethernet_packet(
     aeron_udp_transport_poller_t *poller,
     const uint8_t* pkt_data, const uint32_t pkt_len,
@@ -116,9 +174,6 @@ static int process_ethernet_packet(
     struct ether_hdr* eth_hdr = (struct ether_hdr*) pkt_data;
     const uint16_t frame_type = rte_be_to_cpu_16(eth_hdr->ether_type);
     struct ipv4_hdr* ip_hdr;
-
-    struct sockaddr_storage msg_name;
-    memset(&msg_name, 1, sizeof(msg_name));
 
     switch (frame_type)
     {
@@ -133,42 +188,58 @@ static int process_ethernet_packet(
                 uint8_t* msg_data = ((uint8_t*) udp_hdr) + sizeof(struct udp_hdr);
                 const size_t msg_len = ip_hdr->total_length - (sizeof(struct udp_hdr) + ipv4_hdr_len);
 
-                struct sockaddr_in* in_addr = (struct sockaddr_in*) &msg_name;
-                in_addr->sin_family = AF_INET;
-                in_addr->sin_port = udp_hdr->src_port;
-                in_addr->sin_addr.s_addr = ip_hdr->src_addr;
+                struct sockaddr_in src_addr_in;
+                src_addr_in.sin_family = AF_INET;
+                src_addr_in.sin_port = udp_hdr->src_port;
+                src_addr_in.sin_addr.s_addr = ip_hdr->src_addr;
+
+                struct sockaddr_in dst_addr_in;
+                dst_addr_in.sin_family = AF_INET;
+                dst_addr_in.sin_port = udp_hdr->dst_port;
+                dst_addr_in.sin_addr.s_addr = ip_hdr->dst_addr;
 
                 // TODO: Sanity check the packet length and the data length.
 
-                const int last_index = (int)poller->transports.length - 1;
-                for (int j = last_index; j >= 0; j--)
+                struct msghdr message;
+                message.msg_name = &dst_addr_in;
+                message.msg_namelen = sizeof(dst_addr_in);
+                struct iovec vec;
+                vec.iov_base = msg_data;
+                vec.iov_len = msg_len;
+                message.msg_iov = &vec;
+                message.msg_iovlen = 1;
+                message.msg_control = &src_addr_in;
+                message.msg_controllen = sizeof(src_addr_in);
+
+                loopback_clientd_t loopback_clientd;
+                loopback_clientd.poller = poller;
+                loopback_clientd.clientd = clientd;
+                loopback_clientd.recv_func = recv_func;
+
+                const int msg_handled_by_receiver = handle_received_message(poller, &message, &loopback_clientd);
+                if (!msg_handled_by_receiver)
                 {
-                    aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
-                    if (is_matching_transport(
-                        ip_hdr->dst_addr, udp_hdr->dst_port,
-                        (struct sockaddr_in*) &transport->bind_addr))
-                    {
-                        recv_func(
-                            clientd, transport->dispatch_clientd,
-                            msg_data, msg_len,
-                            &msg_name);
-                    }
+                    // Forward all unhandled UDP to the sender.
+                    aeron_spsc_rb_t* sender_loopback_q = aeron_dpdk_get_sender_udp_recv_q(poller->dpdk_context);
+                    aeron_dpdk_write_sendmsg_rb(sender_loopback_q, &message);
                 }
             }
             else
             {
-                aeron_dpdk_unhandled_packet(poller->dpdk_context, pkt_data, pkt_len);
+                // Maybe a counter for unhandled IP protocol.
             }
 
             break;
 
         default:
+            // Look specifically for ARP here.
             aeron_dpdk_unhandled_packet(poller->dpdk_context, pkt_data, pkt_len);
             break;
     }
 
     return 0;
 }
+
 
 static int poll_network(
     aeron_udp_transport_poller_t* poller,
@@ -196,40 +267,79 @@ static int poll_network(
     return num_pkts;
 }
 
-void poll_loopback_handler(int32_t msg_type, const void * data, size_t len, void * clientd)
+static void poll_loopback_handler(int32_t msg_type, const void* data, size_t len, void* clientd)
 {
+    // TODO: Sanity check length
+
+    loopback_clientd_t* loopback_clientd = (loopback_clientd_t*) clientd;
+
+    uint8_t* namelen_p = (uint8_t*) data;
+    uint8_t* name_p = namelen_p + sizeof(socklen_t);
+
+    socklen_t namelen = *(socklen_t*) namelen_p;
+
+    uint8_t* datalen_p = name_p + namelen;
+    uint8_t* data_p = datalen_p + sizeof(size_t);
+
+    struct sockaddr_in* in_sockaddr = (struct sockaddr_in*) name_p;
+    assert(in_sockaddr->sin_family == AF_INET); // Only IPv4 supported (check elsewhere)
+
+    size_t datalen = *(size_t*) datalen_p;
+
+    uint8_t* controllen_p = data_p + datalen;
+    uint8_t* control_p = controllen_p + sizeof(size_t);
+
+    size_t controllen = *(size_t*) controllen_p;
     
+    struct msghdr message;
+    message.msg_namelen = namelen;
+    message.msg_name = name_p;
+    struct iovec vec;
+    vec.iov_len = datalen;
+    vec.iov_base = data_p;
+    message.msg_iov = &vec;
+    message.msg_iovlen = 1;
+    message.msg_controllen = controllen;
+    message.msg_control = controllen == 0 ? NULL : control_p;
+
+    DPDK_DEBUG("Handling loopback: %s:%d\n", inet_ntoa(in_sockaddr->sin_addr), ntohs(in_sockaddr->sin_port));
+
+    handle_received_message(loopback_clientd->poller, &message, loopback_clientd);
+//
+//    const int last_index = (int)loopback_clientd->poller->transports.length - 1;
+//    for (int j = last_index; j >= 0; j--)
+//    {
+//        aeron_udp_channel_transport_t* transport = loopback_clientd->poller->transports.array[j].transport;
+//        if (is_matching_transport(
+//            in_sockaddr->sin_addr.s_addr, in_sockaddr->sin_port,
+//            (struct sockaddr_in*) &transport->bind_addr))
+//        {
+//            DPDK_DEBUG("Dispatching message for: %s\n", inet_ntoa(in_sockaddr->sin_addr));
+//            loopback_clientd->recv_func(
+//                clientd, transport->dispatch_clientd, data_p, datalen, (struct sockaddr_storage*) in_sockaddr);
+//        }
+//    }
 }
 
 static int poll_loopback(
+    aeron_spsc_rb_t* loopback_q,
     aeron_udp_transport_poller_t* poller,
     aeron_udp_transport_recv_func_t recv_func,
     void* clientd,
     uint32_t* total_bytes)
 {
-    aeron_spsc_rb_t* loopback_q = aeron_dpdk_get_loopback_q(poller->dpdk_context);
+    loopback_clientd_t loopback_clientd;
+    loopback_clientd.clientd = clientd;
+    loopback_clientd.recv_func = recv_func;
+    loopback_clientd.poller = poller;
 
-    aeron_spsc_rb_read()
+    const int64_t pre_read_head = loopback_q->descriptor->head_position;
+    size_t num_msgs = aeron_spsc_rb_read(loopback_q, poll_loopback_handler, &loopback_clientd, 20);
+    const int64_t post_read_head = loopback_q->descriptor->head_position;
 
-//    const int last_index = (int)poller->transports.length - 1;
-//    for (int j = last_index; j >= 0; j--)
-//    {
-//        aeron_udp_channel_transport_t* transport = poller->transports.array[j].transport;
-//        if (is_matching_transport(
-//            ip_hdr->dst_addr, udp_hdr->dst_port,
-//            (struct sockaddr_in*) &transport->bind_addr))
-//        {
-//            recv_func(
-//                clientd, transport->dispatch_clientd,
-//                msg_data, msg_len,
-//                &msg_name);
-//        }
-//    }
-//
-//
-//    return num_pkts;
+    *total_bytes += (post_read_head - pre_read_head);
 
-    return 0;
+    return (int) num_msgs;
 }
 
 int aeron_udp_transport_poller_poll(
@@ -240,41 +350,19 @@ int aeron_udp_transport_poller_poll(
     void *clientd)
 {
     uint32_t total_len = 0;
-    uint16_t num_pkts;
+    int num_pkts;
 
-    poll_network(poller, recv_func, clientd, &total_len);
-
+    num_pkts = poll_network(poller, recv_func, clientd, &total_len);
+    aeron_spsc_rb_t* recv_q = aeron_dpdk_get_recv_loopback(poller->dpdk_context);
+    num_pkts += poll_loopback(recv_q, poller, recv_func, clientd, &total_len);
 
     msgvec[0].msg_len = total_len;
-    for (int i = 1; i < vlen; i++)
+    for (size_t i = 1; i < vlen; i++)
     {
         msgvec[i].msg_len = 0;
     }
 
     return num_pkts;
-}
-
-typedef struct sender_poll_ctx_stct
-{
-    aeron_udp_transport_poller_t* poller;
-    aeron_udp_transport_recv_func_t recv_func;
-    void* clientd;
-}
-sender_poll_ctx_t;
-
-void handle_sender_udp_inbound(int32_t type, const void* data, size_t data_len, void* clientd)
-{
-    sender_poll_ctx_t* sender_poll_ctx = clientd;
-
-    process_ethernet_packet(
-        sender_poll_ctx->poller,
-        data, (uint32_t) data_len,
-        sender_poll_ctx->recv_func, sender_poll_ctx->clientd);
-}
-
-void handle_receiver_udp_outbound(int32_t type, const void* data, size_t data_len, void* clientd)
-{
-    aeron_dpdk_send_ipv4((aeron_dpdk_t*) clientd, data, (uint16_t) data_len);
 }
 
 int aeron_udp_transport_poller_poll_for_sender(
@@ -288,20 +376,12 @@ int aeron_udp_transport_poller_poll_for_sender(
     size_t work_done = aeron_dpdk_handle_other_protocols(poller->dpdk_context);
     
     // deal with messages for sender (e.g. sm/nak...)
-    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_sender_udp_recv_q(poller->dpdk_context);
+    aeron_spsc_rb_t* to_send_q = aeron_dpdk_get_sender_udp_recv_q(poller->dpdk_context);
 
-    sender_poll_ctx_t poll_ctx =
-    {
-        .poller = poller,
-        .recv_func = recv_func,
-        .clientd = clientd
-    };
+    uint32_t total_bytes = 0;
 
-    work_done += aeron_spsc_rb_read(sender_udp_recv_q, handle_sender_udp_inbound, &poll_ctx, 100);
-
-    // deal with receiver messages that need to be sent
-    aeron_spsc_rb_t* receiver_udp_send_q = aeron_dpdk_get_receiver_udp_send_q(poller->dpdk_context);
-    work_done += aeron_spsc_rb_read(receiver_udp_send_q, handle_receiver_udp_outbound, poller->dpdk_context, 100);
+    // TODO: need to forward to unhandled packets onto the network.
+    work_done += poll_loopback(to_send_q, poller, recv_func, clientd, &total_bytes);
 
     return (int) work_done;
 }
