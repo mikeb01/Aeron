@@ -275,6 +275,7 @@ int aeron_dpdk_unhandled_packet(aeron_dpdk_t* aeron_dpdk, const uint8_t* pkt_dat
     {
         case ETHER_TYPE_ARP:
         {
+            DPDK_DEBUG("Received ARP packet: %d\n", pkt_len);
             if (AERON_RB_SUCCESS != aeron_spsc_rb_write(&aeron_dpdk->arp.recv_q, 0, pkt_data, pkt_len))
             {
                 result = -1;
@@ -368,7 +369,7 @@ void send_arp_message(
     arp_msg->arp_data.arp_tip = target_ip_addr;
 
     const uint16_t sent = rte_eth_tx_burst(aeron_dpdk->port_id, 0, &arp_pkt, 1);
-    printf("Sent ARP request: %d\n", sent);
+    DPDK_DEBUG("Sent ARP request op: %d, num: %d\n", arp_op, sent);
 
     rte_pktmbuf_free(arp_pkt);
 }
@@ -385,10 +386,11 @@ static void arp_table_put(aeron_int64_to_ptr_hash_map_t* arp_table, uint32_t ip,
 
 static void handle_arp_msg(int32_t type, const void* data, size_t len, void* clientd)
 {
+    DPDK_DEBUG("Handling ARP Packet: %ld\n", len);
     struct ether_hdr* eth_hdr = (struct ether_hdr*) data;
     aeron_dpdk_t* aeron_dpdk = clientd;
 
-    if (ETHER_TYPE_ARP == eth_hdr->ether_type)
+    if (ETHER_TYPE_ARP == rte_be_to_cpu_16(eth_hdr->ether_type))
     {
         // We assume that aeron will only queue messages of a valid length.
 
@@ -400,7 +402,7 @@ static void handle_arp_msg(int32_t type, const void* data, size_t len, void* cli
             struct ether_addr addr = arp_hdr->arp_data.arp_sha;
             arp_table_put(&aeron_dpdk->arp.index, ip, addr);
 
-            if (arp_hdr->arp_op == ARP_OP_REQUEST &&
+            if (ARP_OP_REQUEST == rte_be_to_cpu_16(arp_hdr->arp_op) &&
                 arp_hdr->arp_data.arp_tip == aeron_dpdk->local_ipv4_address.s_addr &&
                 is_zero(arp_hdr->arp_data.arp_tha))
             {
