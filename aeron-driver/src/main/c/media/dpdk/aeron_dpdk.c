@@ -17,6 +17,8 @@
 #include <aeron_alloc.h>
 #include <rte_arp.h>
 #include <arpa/inet.h>
+#include <pwd.h>
+#include <grp.h>
 
 #include "collections/aeron_int64_to_ptr_hash_map.h"
 #include "concurrent/aeron_spsc_rb.h"
@@ -49,6 +51,8 @@ struct aeron_dpdk_stct
     aeron_spsc_rb_t send_loopback_q;
     aeron_spsc_rb_t recv_loopback_q;
     bool use_hardware_loopback;
+    uid_t user_id;
+    gid_t group_id;
 
     struct aeron_dpdk_arp_stct
     {
@@ -120,6 +124,54 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
 
     value = getenv(AERON_DPDK_USE_HARDWARE_LOOPBACK_ENV_VAR);
     _context->use_hardware_loopback = value == NULL ? false : strncmp("1", value, 1) == 0;
+
+    if ((value = getenv(AERON_DPDK_USER_ENV_VAR)))
+    {
+        struct passwd* user_pw = getpwnam(value);
+
+        if (user_pw)
+        {
+            _context->user_id = user_pw->pw_uid;
+        }
+        else
+        {
+            char* const error_str = errno == 0 ? "Not Found" : strerror(errno);
+            fprintf(
+                stderr,
+                "FATAL: Unable to resolve user: %s, Error: %s(%d)\n",
+                value, error_str, errno);
+            abort();
+        }
+    }
+    else
+    {
+        fprintf(stderr, "FATAL: %s not specified\n", AERON_DPDK_USER_ENV_VAR);
+        abort();
+    }
+
+    if ((value = getenv(AERON_DPDK_GROUP_ENV_VAR)))
+    {
+        struct group* group_pw = getgrnam(value);
+
+        if (group_pw)
+        {
+            _context->group_id = group_pw->gr_gid;
+        }
+        else
+        {
+            char* const error_str = errno == 0 ? "Not Found" : strerror(errno);
+            fprintf(
+                stderr,
+                "FATAL: Unable to resolve group: %s, Error: %s(%d)\n",
+                value, error_str, errno);
+            abort();
+        }
+    }
+    else
+    {
+        fprintf(stderr, "FATAL: %s not specified\n", AERON_DPDK_GROUP_ENV_VAR);
+        abort();
+    }
 
     struct rte_mempool* mbuf_pool = rte_pktmbuf_pool_create(
         "MBUF_POOL", 8191 * 1, 250, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
