@@ -220,7 +220,7 @@ int aeron_udp_channel_transport_sendmsg_for_receiver(
     output_message.msg_control = &transport->bind_addr;
     output_message.msg_controllen = sizeof(struct sockaddr_in);
 
-    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_sender_udp_recv_q(transport->aeron_dpdk);
+    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_send_loopback(transport->aeron_dpdk);
 
     return aeron_dpdk_write_sendmsg_rb(sender_udp_recv_q, &output_message);
 }
