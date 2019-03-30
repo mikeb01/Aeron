@@ -102,7 +102,7 @@ int aeron_udp_channel_transport_recvmmsg(
 }
 
 static int sendmsg_rb(
-    aeron_spsc_rb_t* loopback_q,
+    aeron_spsc_rb_t* recv_loopback,
     struct msghdr* message,
     struct sockaddr_storage* src_addr,
     size_t src_addr_len)
@@ -115,7 +115,7 @@ static int sendmsg_rb(
     output_message.msg_controllen = src_addr_len;
     output_message.msg_control = src_addr;
 
-    aeron_rb_write_result_t retval = aeron_dpdk_write_sendmsg_rb(loopback_q, &output_message);
+    aeron_rb_write_result_t retval = aeron_dpdk_write_sendmsg_rb(recv_loopback, &output_message, UDP_FOR_RECEIVER);
 
     if (0 != retval)
     {
@@ -126,7 +126,7 @@ static int sendmsg_rb(
 }
 
 static int sendmmsg_rb(
-    aeron_spsc_rb_t* loopback_q,
+    aeron_spsc_rb_t* recv_loopback,
     struct mmsghdr* msgvec,
     size_t vlen,
     struct sockaddr_storage* src_addr,
@@ -136,7 +136,7 @@ static int sendmmsg_rb(
     {
         struct msghdr* message = &msgvec[i].msg_hdr;
 
-        if (-1 == sendmsg_rb(loopback_q, message, src_addr, src_addr_len))
+        if (-1 == sendmsg_rb(recv_loopback, message, src_addr, src_addr_len))
         {
             return -1;
         }
@@ -160,7 +160,6 @@ int aeron_udp_channel_transport_sendmmsg(
     else
     {
         struct in_addr dest_addr = ((struct sockaddr_in*) destination)->sin_addr;
-        DPDK_DEBUG("sending mmsg to: %s\n", inet_ntoa(dest_addr));
         if (aeron_dpdk_is_local_addr(transport->aeron_dpdk, &dest_addr))
         {
             return sendmmsg_rb(
@@ -220,9 +219,9 @@ int aeron_udp_channel_transport_sendmsg_for_receiver(
     output_message.msg_control = &transport->bind_addr;
     output_message.msg_controllen = sizeof(struct sockaddr_in);
 
-    aeron_spsc_rb_t* sender_udp_recv_q = aeron_dpdk_get_send_loopback(transport->aeron_dpdk);
+    aeron_spsc_rb_t* send_loopback = aeron_dpdk_get_send_loopback(transport->aeron_dpdk);
 
-    return aeron_dpdk_write_sendmsg_rb(sender_udp_recv_q, &output_message);
+    return aeron_dpdk_write_sendmsg_rb(send_loopback, &output_message, UDP_FOR_SENDER);
 }
 
 int aeron_udp_channel_transport_get_so_rcvbuf(aeron_udp_channel_transport_t *transport, size_t *so_rcvbuf)

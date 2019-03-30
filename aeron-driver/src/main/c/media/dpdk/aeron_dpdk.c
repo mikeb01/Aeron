@@ -649,7 +649,7 @@ static int process_ethernet_packet(
                 {
                     // Forward all unhandled UDP to the sender.
                     aeron_spsc_rb_t* sender_loopback_q = aeron_dpdk_get_send_loopback(dpdk_context);
-                    aeron_dpdk_write_sendmsg_rb(sender_loopback_q, &message);
+                    aeron_dpdk_write_sendmsg_rb(sender_loopback_q, &message, UDP_FOR_SENDER);
                 }
             }
             else
@@ -696,6 +696,7 @@ typedef struct loopback_client_data_stct
 {
     void* clientd;
     aeron_dpdk_handle_message_t recv_func;
+    aeron_dpdk_t* dpdk_context;
 }
 loopback_client_data_t;
 
@@ -713,8 +714,8 @@ static void poll_loopback_handler(int32_t msg_type, const void* data, size_t len
     uint8_t* datalen_p = name_p + namelen;
     uint8_t* data_p = datalen_p + sizeof(size_t);
 
-    struct sockaddr_in* in_sockaddr = (struct sockaddr_in*) name_p;
-    assert(in_sockaddr->sin_family == AF_INET); // Only IPv4 supported (check elsewhere)
+    struct sockaddr_in* dst_sock_addr = (struct sockaddr_in*) name_p;
+    assert(dst_sock_addr->sin_family == AF_INET); // Only IPv4 supported (check elsewhere)
 
     size_t datalen = *(size_t*) datalen_p;
 
@@ -722,6 +723,9 @@ static void poll_loopback_handler(int32_t msg_type, const void* data, size_t len
     uint8_t* control_p = controllen_p + sizeof(size_t);
 
     size_t controllen = *(size_t*) controllen_p;
+
+    struct sockaddr_in* src_sock_addr = (struct sockaddr_in*) controllen_p;
+    assert(dst_sock_addr->sin_family == AF_INET); // Only IPv4 supported (check elsewhere)
 
     struct msghdr message;
     message.msg_namelen = namelen;
@@ -734,12 +738,21 @@ static void poll_loopback_handler(int32_t msg_type, const void* data, size_t len
     message.msg_controllen = controllen;
     message.msg_control = controllen == 0 ? NULL : control_p;
 
-    DPDK_DEBUG("Handling loopback: %s:%d\n", inet_ntoa(in_sockaddr->sin_addr), ntohs(in_sockaddr->sin_port));
+    const aeron_dpdk_handler_result_t result = loopback_clientd->recv_func(&message, loopback_clientd->clientd);
 
-    loopback_clientd->recv_func(&message, loopback_clientd->clientd);
+    if (UDP_FOR_SENDER == msg_type &&
+        NO_MATCHING_TARGET == result &&
+        !aeron_dpdk_is_local_addr(loopback_clientd->dpdk_context, &dst_sock_addr->sin_addr))
+    {
+        DPDK_DEBUG(
+            "Forwarding sender loopback msg: %s:%d\n",
+            inet_ntoa(dst_sock_addr->sin_addr), ntohs(dst_sock_addr->sin_port));
+        aeron_dpdk_sendmsg(loopback_clientd->dpdk_context, src_sock_addr, &message);
+    }
 }
 
 static int poll_loopback(
+    aeron_dpdk_t* dpdk_context,
     aeron_spsc_rb_t* loopback_q,
     aeron_dpdk_handle_message_t recv_func,
     void* clientd,
@@ -748,6 +761,7 @@ static int poll_loopback(
     loopback_client_data_t loopback_clientd;
     loopback_clientd.clientd = clientd;
     loopback_clientd.recv_func = recv_func;
+    loopback_clientd.dpdk_context = dpdk_context;
 
     const int64_t pre_read_head = loopback_q->descriptor->head_position;
     size_t num_msgs = aeron_spsc_rb_read(loopback_q, poll_loopback_handler, &loopback_clientd, 20);
@@ -766,7 +780,7 @@ int aeron_dpdk_poll_receiver_messages(
     uint32_t* total_bytes)
 {
     int num_pkts = poll_network(dpdk_context, local_message_handler, clientd, total_bytes);
-    num_pkts += poll_loopback(aeron_dpdk_get_recv_loopback(dpdk_context), local_message_handler, clientd, total_bytes);
+    num_pkts += poll_loopback(dpdk_context, aeron_dpdk_get_recv_loopback(dpdk_context), local_message_handler, clientd, total_bytes);
     return num_pkts;
 }
 
@@ -783,7 +797,7 @@ int aeron_dpdk_poll_sender_messages(
     aeron_spsc_rb_t* const sender_loopback = aeron_dpdk_get_send_loopback(dpdk_context);
 
     // TODO: Unhandled packets need to be forwarded onto the network...
-    int num_pkts = poll_loopback(sender_loopback, local_message_handler, clientd, total_bytes);
+    int num_pkts = poll_loopback(dpdk_context, sender_loopback, local_message_handler, clientd, total_bytes);
 
     return (int) work_done + num_pkts;
 }

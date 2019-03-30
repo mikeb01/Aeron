@@ -19,6 +19,12 @@ typedef enum aeron_dpdk_handler_result
 }
 aeron_dpdk_handler_result_t;
 
+typedef enum aeron_dpdk_loopback_msg_type_enum
+{
+    ARP = 0, UDP_FOR_SENDER = 1, UDP_FOR_RECEIVER = 2
+}
+aeron_dpdk_loopback_msg_type_t;
+
 typedef aeron_dpdk_handler_result_t (*aeron_dpdk_handle_message_t)(struct msghdr*, void*);
 
 int aeron_dpdk_sendmsg(
@@ -44,7 +50,8 @@ int aeron_dpdk_poll_sender_messages(
     void* clientd,
     uint32_t* total_bytes);
 
-static inline aeron_rb_write_result_t aeron_dpdk_write_sendmsg_rb(aeron_spsc_rb_t* rb, struct msghdr* message)
+static inline aeron_rb_write_result_t aeron_dpdk_write_sendmsg_rb(
+    aeron_spsc_rb_t* rb, struct msghdr* message, aeron_dpdk_loopback_msg_type_t msg_type)
 {
     assert(1 == message->msg_iovlen);
     assert(NULL != message->msg_control);
@@ -64,7 +71,7 @@ static inline aeron_rb_write_result_t aeron_dpdk_write_sendmsg_rb(aeron_spsc_rb_
     vec[5].iov_len = message->msg_controllen;
     vec[5].iov_base = message->msg_control;
 
-    return aeron_spsc_rb_writev(rb, 0, vec, 6);
+    return aeron_spsc_rb_writev(rb, msg_type, vec, 6);
 }
 
 #endif //AERON_AERON_DPDK_MESSAGING_H
