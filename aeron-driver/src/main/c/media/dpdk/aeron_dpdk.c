@@ -242,6 +242,11 @@ struct in_addr aeron_dpdk_get_local_addr(const aeron_dpdk_t* context)
     return context->local_ipv4_address;
 }
 
+bool aeron_dpdk_is_local_addr(const aeron_dpdk_t* context, const struct in_addr* addr)
+{
+    return htonl(INADDR_LOOPBACK) == addr->s_addr;// || aeron_dpdk_get_local_addr(context).s_addr == addr->s_addr;
+}
+
 
 struct rte_mempool* aeron_dpdk_get_mempool(aeron_dpdk_t* context)
 {
@@ -369,7 +374,13 @@ void send_arp_message(
     arp_msg->arp_data.arp_tip = target_ip_addr;
 
     const uint16_t sent = rte_eth_tx_burst(aeron_dpdk->port_id, 0, &arp_pkt, 1);
-    DPDK_DEBUG("Sent ARP request op: %d, num: %d\n", arp_op, sent);
+
+    struct in_addr addr;
+    addr.s_addr = target_ip_addr;
+
+    DPDK_DEBUG(
+        "Sent ARP request op: %d, sip: %s, tip: %s\n", arp_op,
+        inet_ntoa(aeron_dpdk->local_ipv4_address), inet_ntoa(addr));
 
     rte_pktmbuf_free(arp_pkt);
 }
@@ -381,6 +392,10 @@ static void arp_table_put(aeron_int64_to_ptr_hash_map_t* arp_table, uint32_t ip,
     if (NULL != entry)
     {
         entry->ethernet_address = addr;
+        entry->resolved = true;
+        struct in_addr tmp_addr;
+        tmp_addr.s_addr = ip;
+        DPDK_DEBUG("Resolved arp address for: %s\n", inet_ntoa(tmp_addr));
     }
 }
 
@@ -400,15 +415,22 @@ static void handle_arp_msg(int32_t type, const void* data, size_t len, void* cli
         {
             uint32_t ip = arp_hdr->arp_data.arp_sip;
             struct ether_addr addr = arp_hdr->arp_data.arp_sha;
-            arp_table_put(&aeron_dpdk->arp.index, ip, addr);
+//            arp_table_put(&aeron_dpdk->arp.index, ip, addr);
 
-            if (ARP_OP_REQUEST == rte_be_to_cpu_16(arp_hdr->arp_op) &&
-                arp_hdr->arp_data.arp_tip == aeron_dpdk->local_ipv4_address.s_addr &&
-                is_zero(arp_hdr->arp_data.arp_tha))
+            const uint16_t arp_op = rte_be_to_cpu_16(arp_hdr->arp_op);
+            if (ARP_OP_REQUEST == arp_op)
             {
-                send_arp_message(
-                    aeron_dpdk, ARP_OP_REPLY, arp_hdr->arp_data.arp_sha,
-                    arp_hdr->arp_data.arp_sha, arp_hdr->arp_data.arp_sip);
+                if (arp_hdr->arp_data.arp_tip == aeron_dpdk->local_ipv4_address.s_addr &&
+                    is_zero(arp_hdr->arp_data.arp_tha))
+                {
+                    send_arp_message(
+                        aeron_dpdk, ARP_OP_REPLY, arp_hdr->arp_data.arp_sha,
+                        arp_hdr->arp_data.arp_sha, arp_hdr->arp_data.arp_sip);
+                }
+            }
+            else if (ARP_OP_REPLY)
+            {
+                arp_table_put(&aeron_dpdk->arp.index, ip, addr);
             }
         }
     }
@@ -434,21 +456,25 @@ struct ether_addr* aeron_dpdk_arp_lookup(aeron_dpdk_t* aeron_dpdk, uint32_t addr
 
 void aeron_dpdk_arp_submit_query(aeron_dpdk_t* aeron_dpdk, uint32_t addr_in)
 {
+    // TODO: This is going to have to change to allow the arp cache to grow (or perhaps we just have
+    // TODO: a fixed size arp cache and exipre entries...)
     aeron_dpdk_arp_table_entry_t* arp_table_entry =
         (aeron_dpdk_arp_table_entry_t*) aeron_int64_to_ptr_hash_map_get(&aeron_dpdk->arp.index, addr_in);
 
     if (NULL == arp_table_entry)
     {
-        arp_table_entry = calloc(1, sizeof(aeron_dpdk_arp_table_entry_t));
-
-        if (NULL == arp_table_entry)
+        if (aeron_dpdk->arp.table_cap <= aeron_dpdk->arp.table_len)
         {
-            DPDK_DEBUG("Failed to allocate arp table entry for: %d\n", addr_in);
+            DPDK_DEBUG("No space left in ARP table (implement expiry!): %d\n", addr_in);
             // Error
             return;
         }
 
+        arp_table_entry = &aeron_dpdk->arp.table[aeron_dpdk->arp.table_len];
         arp_table_entry->ip_address.s_addr = addr_in;
+        arp_table_entry->resolved = false;
+        aeron_int64_to_ptr_hash_map_put(&aeron_dpdk->arp.index, addr_in, arp_table_entry);
+        aeron_dpdk->arp.table_len++;
     }
 
     const int64_t now = epoch_clock();
@@ -559,17 +585,8 @@ int aeron_dpdk_sendmsg(
     const uint16_t port_id = aeron_dpdk_get_port_id(aeron_dpdk);
     const struct sockaddr_in* dest_addr = message->msg_name;
 
-    // Aeron only uses iov len 1.
-    if (message->msg_iovlen > 1)
-    {
-        return -EINVAL;
-    }
-
-    if (AF_INET != dest_addr->sin_family)
-    {
-        // We only support IPv4 ATM.
-        return -1;
-    }
+    assert(message->msg_iovlen == 1);
+    assert(AF_INET == dest_addr->sin_family);
 
     struct ether_addr* dest_ether_addr = aeron_dpdk_arp_lookup(aeron_dpdk, dest_addr->sin_addr.s_addr);
     if (NULL == dest_ether_addr)
@@ -591,7 +608,9 @@ int aeron_dpdk_sendmsg(
         pkt, dest_addr, dest_ether_addr, bind_addr, &src_ether_addr,
         message->msg_iov[0].iov_base, message->msg_iov[0].iov_len);
 
-    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 1, &buf, 1);
+    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 0, &buf, 1);
+
+    rte_pktmbuf_free(buf);
 
     return (int) (pkts_sent == 0 ? 0 : message->msg_iov[0].iov_len);
 }
@@ -646,82 +665,7 @@ int aeron_dpdk_sendmmsg(
             msg->msg_iov[0].iov_base, msg->msg_iov[0].iov_len);
     }
 
-    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 1, bufs, messages);
+    const uint16_t pkts_sent = rte_eth_tx_burst(port_id, 0, bufs, messages);
 
     return pkts_sent;
-}
-
-int aeron_dpdk_sendmsg_for_receiver(
-    aeron_dpdk_t* aeron_dpdk,
-    const struct sockaddr_in* bind_addr,
-    const struct msghdr *message)
-{
-    const struct sockaddr_in* dst_addr = message->msg_name;
-    const size_t src_data_len = message->msg_iov[0].iov_len;
-
-    const uint8_t internal_msg[8192]; // TODO: this will need to be smaller than network MTU, but 8K should be enough.
-
-    // Aeron only uses iov len 1.
-    if (message->msg_iovlen > 1)
-    {
-        return -EINVAL;
-    }
-
-    if (AF_INET != dst_addr->sin_family)
-    {
-        // We only support IPv4 ATM.
-        return -1;
-    }
-
-    const uint16_t ip_total_len = sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr) + src_data_len;
-
-    struct ipv4_hdr* udp_ip = (struct ipv4_hdr*) ((char*) internal_msg + sizeof(struct ether_hdr));
-    set_l3_for_ipv4_udp_pkt(udp_ip, dst_addr, bind_addr, ip_total_len);
-
-    uint16_t checksum = rte_ipv4_phdr_cksum(udp_ip, PKT_TX_IPV4 | PKT_TX_UDP_CKSUM | PKT_TX_IP_CKSUM);
-    struct udp_hdr* udp_udp = (struct udp_hdr*) ((char*) udp_ip + sizeof(struct ipv4_hdr));
-    set_l4_for_ipv4_udp_pkt(udp_udp, dst_addr, bind_addr, src_data_len, checksum);
-
-    char* udp_payload = (char*) udp_udp  + sizeof(struct udp_hdr);
-    rte_memcpy(udp_payload, message->msg_iov[0].iov_base, src_data_len);
-
-    const aeron_rb_write_result_t result = aeron_spsc_rb_write(&aeron_dpdk->receiver_udp_send_q, 0, internal_msg, ip_total_len);
-
-    return (AERON_RB_SUCCESS == result ? (int) src_data_len : result);
-}
-
-int aeron_dpdk_send_ipv4(aeron_dpdk_t* aeron_dpdk, const char* packet, uint16_t ip_total_len)
-{
-    struct rte_mbuf* buf;
-    struct rte_mempool* mempool = aeron_dpdk_get_mempool(aeron_dpdk);
-    const uint16_t port_id = aeron_dpdk_get_port_id(aeron_dpdk);
-
-    buf = rte_pktmbuf_alloc(mempool);
-    struct ether_hdr* pkt = rte_pktmbuf_mtod(buf, struct ether_hdr*);
-
-    set_mbuf(buf, ip_total_len - (sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr)));
-
-    struct ipv4_hdr* ipv4_hdr_src = (struct ipv4_hdr*) packet;
-
-    struct ether_addr* dest_ether_addr = aeron_dpdk_arp_lookup(aeron_dpdk, ipv4_hdr_src->dst_addr);
-
-    if (NULL == dest_ether_addr)
-    {
-        aeron_dpdk_arp_submit_query(aeron_dpdk, ipv4_hdr_src->dst_addr);
-        return -1;
-    }
-
-    struct ether_addr src_ether_addr;
-    rte_eth_macaddr_get(port_id, &src_ether_addr);
-
-    set_l2_for_ipv4_udp_pkt(pkt, dest_ether_addr, &src_ether_addr);
-
-    struct ipv4_hdr* ipv4_hdr_dst = (struct ipv4_hdr*) (char *) pkt + sizeof(struct ether_hdr);
-
-    rte_memcpy(ipv4_hdr_dst, ipv4_hdr_src, ip_total_len);
-
-    rte_eth_tx_burst(port_id, 0, &buf, 1);
-
-    return 1;
-
 }

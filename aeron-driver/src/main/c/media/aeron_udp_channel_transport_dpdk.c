@@ -145,12 +145,6 @@ static int sendmmsg_rb(
     return 0;
 }
 
-bool is_local_address(const aeron_dpdk_t* context, struct in_addr* dest_addr)
-{
-    return htonl(INADDR_LOOPBACK) == dest_addr->s_addr
-        || aeron_dpdk_get_local_addr(context).s_addr == dest_addr->s_addr;
-}
-
 int aeron_udp_channel_transport_sendmmsg(
     aeron_udp_channel_transport_t *transport,
     struct mmsghdr *msgvec,
@@ -167,7 +161,7 @@ int aeron_udp_channel_transport_sendmmsg(
     {
         struct in_addr dest_addr = ((struct sockaddr_in*) destination)->sin_addr;
         DPDK_DEBUG("sending mmsg to: %s\n", inet_ntoa(dest_addr));
-        if (is_local_address(transport->aeron_dpdk, &dest_addr))
+        if (aeron_dpdk_is_local_addr(transport->aeron_dpdk, &dest_addr))
         {
             return sendmmsg_rb(
                 aeron_dpdk_get_recv_loopback(transport->aeron_dpdk),
@@ -197,9 +191,9 @@ int aeron_udp_channel_transport_sendmsg(
     {
         struct sockaddr_in* const sockaddr_in = (struct sockaddr_in*) destination;
         struct in_addr dest_addr = sockaddr_in->sin_addr;
-        DPDK_DEBUG("sending msg to: %s:%d\n", inet_ntoa(dest_addr), ntohs(sockaddr_in->sin_port));
-        if (is_local_address(transport->aeron_dpdk, &dest_addr))
+        if (aeron_dpdk_is_local_addr(transport->aeron_dpdk, &dest_addr))
         {
+            DPDK_DEBUG("Sending via recv loopback to: %s:%d\n", inet_ntoa(dest_addr), ntohs(sockaddr_in->sin_port));
             return sendmsg_rb(
                 aeron_dpdk_get_recv_loopback(transport->aeron_dpdk),
                 message,
@@ -207,6 +201,7 @@ int aeron_udp_channel_transport_sendmsg(
         }
         else
         {
+            DPDK_DEBUG("Sending via dpdk to: %s:%d\n", inet_ntoa(dest_addr), ntohs(sockaddr_in->sin_port));
             return aeron_dpdk_sendmsg(transport->aeron_dpdk, (const struct sockaddr_in*) &transport->bind_addr, message);
         }
     }

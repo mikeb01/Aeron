@@ -128,13 +128,14 @@ loopback_clientd_t;
  * @return
  */
 static int handle_received_message(
-    aeron_udp_transport_poller_t* poller,
     struct msghdr* message,
     loopback_clientd_t* clientd)
 {
     int dispatch_count = 0;
     struct sockaddr_in* dst_addr_in = message->msg_name;
     struct sockaddr_in* src_addr_in = message->msg_control;
+
+    aeron_udp_transport_poller_t* poller = clientd->poller;
 
     assert(message->msg_namelen == sizeof(struct sockaddr_in));
     assert(src_addr_in != NULL);
@@ -184,7 +185,7 @@ static int process_ethernet_packet(
             if (IPPROTO_UDP == ip_hdr->next_proto_id)
             {
                 int ipv4_hdr_len = (ip_hdr->version_ihl & IPV4_HDR_IHL_MASK) * IPV4_IHL_MULTIPLIER;
-                struct udp_hdr* udp_hdr = (struct udp_hdr*) ((uint8_t*) ip_hdr) + ipv4_hdr_len;
+                struct udp_hdr* udp_hdr = (struct udp_hdr*) ((uint8_t*) ip_hdr + ipv4_hdr_len);
                 uint8_t* msg_data = ((uint8_t*) udp_hdr) + sizeof(struct udp_hdr);
                 const size_t msg_len = ip_hdr->total_length - (sizeof(struct udp_hdr) + ipv4_hdr_len);
 
@@ -216,7 +217,7 @@ static int process_ethernet_packet(
                 loopback_clientd.clientd = clientd;
                 loopback_clientd.recv_func = recv_func;
 
-                const int msg_handled_by_receiver = handle_received_message(poller, &message, &loopback_clientd);
+                const int msg_handled_by_receiver = handle_received_message(&message, &loopback_clientd);
                 if (!msg_handled_by_receiver)
                 {
                     // Forward all unhandled UDP to the sender.
@@ -304,21 +305,7 @@ static void poll_loopback_handler(int32_t msg_type, const void* data, size_t len
 
     DPDK_DEBUG("Handling loopback: %s:%d\n", inet_ntoa(in_sockaddr->sin_addr), ntohs(in_sockaddr->sin_port));
 
-    handle_received_message(loopback_clientd->poller, &message, loopback_clientd);
-//
-//    const int last_index = (int)loopback_clientd->poller->transports.length - 1;
-//    for (int j = last_index; j >= 0; j--)
-//    {
-//        aeron_udp_channel_transport_t* transport = loopback_clientd->poller->transports.array[j].transport;
-//        if (is_matching_transport(
-//            in_sockaddr->sin_addr.s_addr, in_sockaddr->sin_port,
-//            (struct sockaddr_in*) &transport->bind_addr))
-//        {
-//            DPDK_DEBUG("Dispatching message for: %s\n", inet_ntoa(in_sockaddr->sin_addr));
-//            loopback_clientd->recv_func(
-//                clientd, transport->dispatch_clientd, data_p, datalen, (struct sockaddr_storage*) in_sockaddr);
-//        }
-//    }
+    handle_received_message(&message, loopback_clientd);
 }
 
 static int poll_loopback(

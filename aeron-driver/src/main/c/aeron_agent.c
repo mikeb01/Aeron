@@ -36,7 +36,7 @@ static void aeron_idle_strategy_sleeping_idle(void *state, int work_count)
         return;
     }
 
-    aeron_nano_sleep(1);
+    aeron_nano_sleep(100000);
 }
 
 static void aeron_idle_strategy_yielding_idle(void *state, int work_count)

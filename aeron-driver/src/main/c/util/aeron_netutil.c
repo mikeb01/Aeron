@@ -537,6 +537,14 @@ int aeron_find_interface(const char *interface_str, struct sockaddr_storage *if_
         return -1;
     }
 
+#ifdef USE_DPDK
+    if (32 != state.prefixlen || state.lookup_addr.ss_family != AF_INET)
+    {
+        return -1;
+    }
+
+    memcpy(if_addr, &state.lookup_addr, sizeof(struct sockaddr_in));
+#else
     state.if_addr = if_addr;
     state.if_index = if_index;
     state.if_prefixlen = 0;
@@ -552,6 +560,7 @@ int aeron_find_interface(const char *interface_str, struct sockaddr_storage *if_
     }
 
     aeron_ip_copy_port(if_addr, &state.lookup_addr);
+#endif
 
     return 0;
 }
