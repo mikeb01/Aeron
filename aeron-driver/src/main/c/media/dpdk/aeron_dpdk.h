@@ -10,6 +10,7 @@
  * loopback sends to this address internally.
  */
 #define AERON_DPDK_LOCAL_ADDRESS_ENV_VAR "AERON_DPDK_LOCAL_ADDRESS"
+#define AERON_DPDK_USE_HARDWARE_LOOPBACK_ENV_VAR "AERON_DPDK_USE_HARDWARE_LOOPBACK"
 
 void aeron_dpdk_init_eal(int argc, char** argv);
 

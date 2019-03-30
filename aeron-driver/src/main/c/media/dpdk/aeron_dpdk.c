@@ -48,6 +48,7 @@ struct aeron_dpdk_stct
     uint16_t subnet_mask;
     aeron_spsc_rb_t send_loopback_q;
     aeron_spsc_rb_t recv_loopback_q;
+    bool use_hardware_loopback;
 
     struct aeron_dpdk_arp_stct
     {
@@ -117,6 +118,9 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         abort();
     }
 
+    value = getenv(AERON_DPDK_USE_HARDWARE_LOOPBACK_ENV_VAR);
+    _context->use_hardware_loopback = value == NULL ? false : strncmp("1", value, 1) == 0;
+
     struct rte_mempool* mbuf_pool = rte_pktmbuf_pool_create(
         "MBUF_POOL", 8191 * 1, 250, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
@@ -165,14 +169,22 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
         return -1;
     }
 
-    rc = rte_eth_rx_queue_setup(port_id, 0, num_rxd, rte_eth_dev_socket_id(port_id), NULL, mbuf_pool);
+    const int socket_id_result = rte_eth_dev_socket_id(port_id);
+    if (socket_id_result < 0)
+    {
+        fprintf(stderr, "FATAL: Failed to resolve socket id for port: %s\n", strerror(-rc));
+        return -1;
+    }
+    const uint32_t socket_id = (uint32_t) socket_id_result;
+
+    rc = rte_eth_rx_queue_setup(port_id, 0, num_rxd, socket_id, NULL, mbuf_pool);
     if (rc < 0)
     {
         fprintf(stderr, "FATAL: Failed to set up rx queue: %s\n", strerror(-rc));
         return -1;
     }
 
-    rc = rte_eth_tx_queue_setup(port_id, 0, num_txd, rte_eth_dev_socket_id(port_id), &info.default_txconf);
+    rc = rte_eth_tx_queue_setup(port_id, 0, num_txd, socket_id, &info.default_txconf);
     if (rc < 0)
     {
         fprintf(stderr, "FATAL: Failed to set up tx queue: %s\n", strerror(-rc));
@@ -227,7 +239,8 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
 
 bool aeron_dpdk_is_local_addr(const aeron_dpdk_t* context, const struct in_addr* addr)
 {
-    return htonl(INADDR_LOOPBACK) == addr->s_addr;// || aeron_dpdk_get_local_addr(context).s_addr == addr->s_addr;
+    return htonl(INADDR_LOOPBACK) == addr->s_addr ||
+        (!context->use_hardware_loopback && context->local_ipv4_address.s_addr == addr->s_addr);
 }
 
 aeron_spsc_rb_t* aeron_dpdk_get_send_loopback(aeron_dpdk_t* aeron_dpdk)

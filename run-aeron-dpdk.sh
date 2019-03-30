@@ -7,4 +7,5 @@ sudo                                    \
  AERON_SHARED_IDLE_STRATEGY=sleeping    \
  AERON_THREADING_MODE=SHARED            \
  AERON_DPDK_LOCAL_ADDRESS=192.168.0.10  \
+ AERON_DPDK_USE_HARDWARE_LOOPBACK=0     \
  ${DEBUG} ./cmake-build-debug/binaries/aeronmd_dpdk
