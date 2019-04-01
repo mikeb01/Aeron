@@ -289,6 +289,16 @@ int aeron_dpdk_init(aeron_dpdk_t** context)
     return 0;
 }
 
+uid_t aeron_dpdk_get_uid(const aeron_dpdk_t* context)
+{
+    return context->user_id;
+}
+
+gid_t aeron_dpdk_get_gid(const aeron_dpdk_t* context)
+{
+    return context->group_id;
+}
+
 bool aeron_dpdk_is_local_addr(const aeron_dpdk_t* context, const struct in_addr* addr)
 {
     return htonl(INADDR_LOOPBACK) == addr->s_addr ||

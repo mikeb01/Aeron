@@ -21,6 +21,9 @@ typedef struct aeron_dpdk_stct aeron_dpdk_t;
 
 int aeron_dpdk_init(aeron_dpdk_t** context);
 
+uid_t aeron_dpdk_get_uid(const aeron_dpdk_t* context);
+gid_t aeron_dpdk_get_gid(const aeron_dpdk_t* context);
+
 #define DPDK_DEBUG_ENABLED 1
 #define DPDK_DEBUG(fmt, ...)    \
     do                          \

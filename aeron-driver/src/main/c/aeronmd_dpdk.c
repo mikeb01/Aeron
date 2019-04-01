@@ -64,13 +64,13 @@ int main(int argc, char **argv)
     }
 
     // TODO, make configurable
-    if (-1 == setgid(1000))
+    if (-1 == setgid(aeron_dpdk_get_gid(aeron_dpdk_context)))
     {
         perror("Failed to set group");
         exit(-1);
     }
 
-    if (-1 == setuid(1000))
+    if (-1 == setuid(aeron_dpdk_get_uid(aeron_dpdk_context)))
     {
         perror("Failed to set user");
         exit(-1);

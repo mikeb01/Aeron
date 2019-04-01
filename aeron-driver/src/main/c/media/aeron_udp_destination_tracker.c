@@ -21,6 +21,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include "media/dpdk/aeron_dpdk.h"
 #include "protocol/aeron_udp_protocol.h"
