@@ -1,0 +1,208 @@
+:sourcedir: ../../../src/main/java
+
+= Archive Tutorial
+
+This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
+
+== Introduction
+
+The Aeron Archive is tool provided with Aeron that provides storage and retrieval of messages sent to Aeron
+publications.  This has a number of uses including providing a late join capability for subscriptions, journalling a
+stream of messages for recovery, or as a time series persistent store available for application functions (audit,
+analytics, etc.).  Aeron has a clear design goal of building on top of a solid foundation.  The Archive is no exception,
+all of the communications with the archive to query and replay messages happens over Aeron channels.  Recordings of
+messages by the Archive are implemented using spies (link) to watch messages sent to a publication.
+
+=== Recordings
+
+The core entity within the archive is the recording.  A recording represents a sub-sequence of messages with a stream.
+There can be multiple recordings for the same stream, however they will not overlap in time. Replaying all of recordings
+for a given stream in time order will replay all of the stored messages in time order.  Records can be from two places,
+either locally by recording all of the messages sent to a publication or remotely by recording all messages coming into
+a subscription.
+
+TODO: include record descriptor XML.
+
+=== Streams
+
+When recording and replaying messages there a number of different streams that are involved and for new users of the
+Archive it can lead to confusion.  During the process of recording and replaying a stream of data there are three
+streams that are involved in the process.
+
+==== Control Stream
+
+The control stream is used to co-ordinate requests between the archive clients and the archive.  This includes handling
+requests to start recording a publication or subscription, query requests to find recordings in the archive and
+replaying data from the archive's recordings.  This is configured when setting up the archive and archive clients.  It
+should be unique to each archive therefore avoid using multi-cast or multi-destination-cast for this stream.
+
+==== Data Stream
+
+This is the stream of data that is being recorded.  The channel definition for this stream can be used to identify which
+recordings to replay.  It is included in the recording descriptor that is returned from the archive when querying.
+
+==== Replay Stream
+
+This is stream that will be used to replay the data back to the client.
+
+== Simple Record and Replay
+
+The following is an example of creating a local reocrding and replaying it from a separate media driver instance.
+
+To use the Aeron Archive there are two additional components that need to be configured in addition to the Media Driver
+and Aeron client.  These are the Archive(link) used to perform the actual recording to disk and the Archive(link) client
+used to enable, replay and query recordings.
+
+Aeron allows for a lot of flexibility around how these components are run with regards to the threads and processes they
+run in.  Aeron also provides main methods in a lot of these class to allow launching with configuration specified in
+properties files.  We will look at some of those different configurations later on the tutorial.  For the purpose of
+this tutorial we want to have two media drivers one "local" and one "remote".  For the "local" media driver (and
+archive) we will run this in a separate process using the default ArchivingMediaDriver(link) proved by aeron.
+
+[source,bash]
+----
+$ java -cp ${aeronlocation}/aeron-all-${version}.jar io.aeron.archive.ArchivingMediaDriver
+----
+
+You will need to replace `${aeronlocation}` and `${version}` relevant to your environment.  This will use the default
+file locations for the media driver and the archive.
+
+=== Publishing and Archiving Messages
+
+In order to make use of the archive, we need to set up an Archive client and associate it with an Aeron client.  For
+our example we will set up the archive client the same process as the one that is supplying messages to the publication.
+
+[source,java,indent=0]
+----
+include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java[tag=connect]
+----
+
+<1> Firstly connect to the archive by associating the aeron client with the archive client to provide the necessary
+connection.
+
+<2> Construction a recorded publication.
+
+In this example we are going to publish the messages to an UDP topic and show how we can replay the messages from that
+topic via a separate remote media driver.  As we are recording the messages locally, there is a shortcut for creating a
+a recorded publication, `AeronArchive::addRecordedPubliication`.  This internally constructs a publication and sets up
+the archive to record its messages.  Note that it is also possible to publish an IPC topic and replay the messages
+remotely.
+
+Once the recorded publication is set up, send messages is the same as using a regular publication.
+
+[source,java,indent=0]
+----
+include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java[tag=publication]
+----
+
+However there is a small problem with this example.  If we run the publisher main method, it will fail with an exception
+similar to the following:
+
+----
+Exception in thread "main" io.aeron.exceptions.TimeoutException: Failed to deliver message within deadline, last result code: -1
+	at com.example.TutorialPublisherOne.checkDeadline(TutorialPublisherOne.java:34)
+	at com.example.TutorialPublisherOne.publishMessages(TutorialPublisherOne.java:50)
+	at com.example.TutorialPublisherOne.main(TutorialPublisherOne.java:25)
+----
+
+With Aeron there needs to be at least one connection to a UDP based stream before messages can be published
+successfully.  The code may work if the topic being recorded is set up using an IPC transport, however this temporary,
+if we have enough messages eventually we will fill the IPC buffer and the offer will eventually fail with a
+BACK_PRESSURED (-2) error.  Aeron requires (under the default flow control model?) that a UDP stream has at least one
+subscriber in order to establish a connection.  IPC also requires at least one subscriber to support a flow events, but
+will buffer messages until term is full rather than reject messages immediately.
+
+There are two ways to solve this.  First is to ensure that there is a subscriber connected before publishing.  The
+second is to configure the media driver to allow the archive to behave as a subscriber.  The configuration option is
+`aeron.spies.simulate.connection=true`.  The archive uses a spy on the publication specified when creating the
+recorded publication to record messages as they are published.  This setting will change the way the media driver treats
+spies so that it will appear as if there is a connection to the stream.  The configuration option can be set in a couple
+of ways (link to configuration).  In our case we will use the command line option.
+
+----
+$ java -cp ${aeronlocation}/aeron-all-${version}.jar \
+    -Daeron.spies.simulate.connection=true           \
+    io.aeron.archive.ArchivingMediaDriver
+----
+
+Running the publisher code now should result in the following output.
+
+----
+Publish message: 0
+Publish message: 1
+Publish message: 2
+Publish message: 3
+Publish message: 4
+Publish message: 5
+Publish message: 6
+Publish message: 7
+Publish message: 8
+Publish message: 9
+----
+
+As the log indicates this will published and archived 10 messages.
+
+==== Replaying Closed Recordings
+
+The next step is to retrieve the data from the archive.  For this we are going to simulate the subscriber running on a
+separate node to the one recording the pubication.  Given our subscriber is only going retrieve data, we don't need to
+set up an another archive.  To do this we are going to use an embedded media driver on the subscriber side.  This
+example will only retrieve closed archives.
+
+[source,java,indent=0]
+----
+include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java[tag=connect]
+----
+
+<1> We are using an embedded media driver in this instance to simulate the subscriber runningn on a separate node.  This
+isn't necessary, we could use the same media driver as the archiver or one started independently.
+
+<2> Again we need to connect the archive client.
+
+<3> Once the connection is established we need to query to find recording that we would like to replay.
+
+The `AeronArchive` client comes with a number of different ways to query for recordings.  We will use the most general
+one which allows fetching of all of the recordings available within an archiver within a range of recording ids.  It
+aslo possible to query for recordings that partially match a channel definition or by recordingId.
+
+This will list up recordings in the `Archiver` from recordingId `0`.  The second parameter is the number of recordings
+that will be returned.  This can be used to page through the recordings if required.  The third parameter is a callback
+that will receive the meta information about the archive (link to descriptor).
+
+We will implement a simple handler for the recording descriptors that will, for each closed recording, replay all its
+messages.
+
+[source,java,indent=0]
+----
+include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java[tag=handler]
+----
+
+<1>  When the `stopPosition` of a recording is `-1` is means that the recording is still open and being written to by
+the archive.  We look at processing open recordings later.
+
+<2> We start the replay by specifying the `recordingId`, `startPosition` and the number of bytes we want to replay.
+
+<3> The channel/stream id to replay the messages to.  The archive client will return a subscription that is already
+connected to that stream.
+
+<4> Replay the messages from the subscription returned from the archive client's replay call.
+
+<5> In order figure out whether the replay has reached the end of the stream we need to track the position that the
+replay is up to.  This is handled by getting the position from the header.  The JavaDoc describes this as the 'current
+position to which the image has advanced on reading this message'.  Therefore if this value is equal to the stopPosition
+for the recording we know that we have reached the end of it.  This value is also used if we need to replay a recording
+retain where we are up to in order to resume from that position in the future.
+
+=== Exercises
+
+. Try using an IPC topic instead of a UDP one for the recorded publication.  Does it work?
+
+. Try publishing messages to 2 different channels and replaying the messages from just one by filtering the descriptors.
+ Is there a more efficient way to do it?  Hint: have a look through the `AeronArchive`.
+
+There are a couple of outstanding issues with this example.  Firstly it does not follow a live recording, the other is
+that the performance of this client is not optimal.  For example it has a capturing lambda (specifically to retain a
+reference to the `lastPosition`) within a loop, so it will be allocating on each poll.  It may be sufficient in many
+cases, but Aeron is designed to be used in situations where the performance of the software is a high priority.  The
+next replay example will address both of these and also be implemented using Agrona's agent model (more on the specifics
+of that as we work through the example).

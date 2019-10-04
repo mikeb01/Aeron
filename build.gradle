@@ -26,6 +26,7 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '5.2.0' apply false
     id 'biz.aQute.bnd.builder' version '4.3.1' apply false
     id "com.github.ben-manes.versions" version "0.27.0"
+    id 'org.asciidoctor.convert' version '1.6.0' apply false
 }
 
 defaultTasks 'clean', 'build', 'shadowJar', 'install'
@@ -790,6 +791,7 @@ project(':aeron-agent') {
 
 project(':aeron-samples') {
     apply plugin: 'com.github.johnrengelman.shadow'
+    apply plugin: 'org.asciidoctor.convert'
 
     dependencies {
         api project(':aeron-archive')
