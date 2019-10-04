@@ -109,8 +109,6 @@ remotely.
 
 Once the recorded publication is set up, send messages is the same as using a regular publication.
 
-../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L33-L61
-
 ifdef::env-github[]
 Source: link:../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L33-L61[Publish Messages]
 endif::[]
