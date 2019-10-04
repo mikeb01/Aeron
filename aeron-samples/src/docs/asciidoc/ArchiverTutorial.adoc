@@ -2,6 +2,20 @@
 
 = Archive Tutorial
 
+ifdef::env-github[]
+
+You appear to be viewing this tutorial on Github.  The document is much nicer to read if you checkout the Aeron project
+and run:
+
+```
+$ ./gradle asciidoctor
+```
+
+This will create a more nicely formatted file: `aeron-samples/build/asciidoc/html5/ArchiverTutorial.html` with inline
+source code.
+
+endif::[]
+
 This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
 
 == Introduction
