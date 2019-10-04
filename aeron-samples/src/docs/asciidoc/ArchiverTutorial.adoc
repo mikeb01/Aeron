@@ -86,10 +86,15 @@ file locations for the media driver and the archive.
 In order to make use of the archive, we need to set up an Archive client and associate it with an Aeron client.  For
 our example we will set up the archive client the same process as the one that is supplying messages to the publication.
 
+ifdef::env-github[]
+link:../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L16-L28[TutorialPublisherOne.java]
+endif::[]
+ifndef::env-github[]
 [source,java,indent=0]
 ----
 include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java[tag=connect]
 ----
+endif::env-github[]
 
 <1> Firstly connect to the archive by associating the aeron client with the archive client to provide the necessary
 connection.
