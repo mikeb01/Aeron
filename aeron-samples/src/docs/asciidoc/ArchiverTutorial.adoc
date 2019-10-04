@@ -87,7 +87,7 @@ In order to make use of the archive, we need to set up an Archive client and ass
 our example we will set up the archive client the same process as the one that is supplying messages to the publication.
 
 ifdef::env-github[]
-link:../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L16-L28[TutorialPublisherOne.java]
+Source: link:../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L16-L28[Connect Aeron & Archive]
 endif::[]
 ifndef::env-github[]
 [source,java,indent=0]
@@ -109,10 +109,17 @@ remotely.
 
 Once the recorded publication is set up, send messages is the same as using a regular publication.
 
+../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L33-L61
+
+ifdef::env-github[]
+Source: link:../../main/java/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java#L33-L61[Publish Messages]
+endif::[]
+ifndef::env-github[]
 [source,java,indent=0]
 ----
 include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java[tag=publication]
 ----
+endif::[]
 
 However there is a small problem with this example.  If we run the publisher main method, it will fail with an exception
 similar to the following:
@@ -128,8 +135,8 @@ With Aeron there needs to be at least one connection to a UDP based stream befor
 successfully.  The code may work if the topic being recorded is set up using an IPC transport, however this temporary,
 if we have enough messages eventually we will fill the IPC buffer and the offer will eventually fail with a
 BACK_PRESSURED (-2) error.  Aeron requires (under the default flow control model?) that a UDP stream has at least one
-subscriber in order to establish a connection.  IPC also requires at least one subscriber to support a flow events, but
-will buffer messages until term is full rather than reject messages immediately.
+subscriber in order to establish a connection.  IPC also requires at least one subscriber to support a flow of events,
+but will buffer messages until term is full rather than reject messages immediately.
 
 There are two ways to solve this.  First is to ensure that there is a subscriber connected before publishing.  The
 second is to configure the media driver to allow the archive to behave as a subscriber.  The configuration option is
