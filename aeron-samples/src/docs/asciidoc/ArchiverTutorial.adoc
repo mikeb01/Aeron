@@ -96,7 +96,7 @@ include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialPublisherOne.java
 ----
 endif::env-github[]
 
-<1> Firstly connect to the archive by associating the aeron client with the archive client to provide the necessary
+<1> Firstly connect to the archive by associating the Aeron client with the archive client to provide the necessary
 connection.
 
 <2> Construction a recorded publication.
@@ -164,19 +164,25 @@ Publish message: 8
 Publish message: 9
 ----
 
-As the log indicates this will published and archived 10 messages.
+As the log indicates this will have published and archived 10 messages.
 
 ==== Replaying Closed Recordings
 
 The next step is to retrieve the data from the archive.  For this we are going to simulate the subscriber running on a
-separate node to the one recording the pubication.  Given our subscriber is only going retrieve data, we don't need to
+separate node to the one recording the publication.  Given our subscriber is only going retrieve data, we don't need to
 set up an another archive.  To do this we are going to use an embedded media driver on the subscriber side.  This
 example will only retrieve closed archives.
 
+ifdef::env-github[]
+Source: link:../../main/java/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java#L16-L28[Connect Aeron & Archive]
+endif::[]
+ifndef::env-github[]
 [source,java,indent=0]
 ----
 include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java[tag=connect]
 ----
+endif::[]
+
 
 <1> We are using an embedded media driver in this instance to simulate the subscriber runningn on a separate node.  This
 isn't necessary, we could use the same media driver as the archiver or one started independently.
@@ -186,20 +192,25 @@ isn't necessary, we could use the same media driver as the archiver or one start
 <3> Once the connection is established we need to query to find recording that we would like to replay.
 
 The `AeronArchive` client comes with a number of different ways to query for recordings.  We will use the most general
-one which allows fetching of all of the recordings available within an archiver within a range of recording ids.  It
-aslo possible to query for recordings that partially match a channel definition or by recordingId.
+one which allows fetching of all of the recordings available within an Archive within a range of recording ids.  It
+is also possible to query for recordings that partially match a channel definition or by recordingId.
 
-This will list up recordings in the `Archiver` from recordingId `0`.  The second parameter is the number of recordings
-that will be returned.  This can be used to page through the recordings if required.  The third parameter is a callback
-that will receive the meta information about the archive (link to descriptor).
+This will list recordings in the `Archive` from recordingId `0`.  The second parameter is the number of recordings that
+will be returned.  This can be used to page through the recordings if required.  The third parameter is a callback that
+will receive the meta information about the archive (link to descriptor).
 
 We will implement a simple handler for the recording descriptors that will, for each closed recording, replay all its
 messages.
 
+ifdef::env-github[]
+Source: link:../../main/java/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java#L43-L76[Replay Messages]
+endif::[]
+ifndef::env-github[]
 [source,java,indent=0]
 ----
 include::{sourcedir}/io/aeron/samples/tutorial/archive/TutorialSubscriberOne.java[tag=handler]
 ----
+endif::[]
 
 <1>  When the `stopPosition` of a recording is `-1` is means that the recording is still open and being written to by
 the archive.  We look at processing open recordings later.
