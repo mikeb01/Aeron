@@ -1,0 +1,134 @@
+:sourcedir: ../../../src/main/java
+
+= Aeron Cluster Tutorial
+
+ifdef::env-github[]
+
+You appear to be viewing this tutorial on Github.  The document is much nicer to read if you checkout the Aeron project
+and run:
+
+```
+$ ./gradle asciidoctor
+```
+
+This will create a more nicely formatted file: `aeron-samples/build/asciidoc/html5/ArchiverTutorial.html` with inline
+source code.
+
+endif::[]
+
+IMPORTANT: This tutorial is currently a work in progress, information may be missing or incomplete.
+
+This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
+
+== Introduction
+
+Aeron Cluster is feature that builds upon Aeron and Archive to create a distributed system that contains multiple
+redundant instances of the same service whose state is kept synchronized though Aeron Cluster's implementation of the
+https://raft.github.io/[Raft Consensus Algorithm].  The base functionality provided is that given a cluster of nodes
+(`n`), a message in only processed once a majority of nodes (`⌊n/2⌋ + 1`) have received that message.  This provides
+fault tolerance in that a portion of may be unavailable, but the system can safely continue to process messages.
+
+=== Raft Basics
+
+It is not the intention of this tutorial to go into a full description of the https://raft.github.io/[Raft Consensus
+Algorithm], however it is difficult explain Aeron Cluster without a few definitions up front.  The key concepts
+are (some are Aeron specific):
+
+- Node, a physical server, container instance, VM or group of processes that represents on logicial server within the
+cluster.
+- Leader, a node within the cluster responsible for replicating messages to the other nodes and waiting for
+acknowledgements.
+- Follower, other nodes within the cluster that receive messages replicated from the leader.
+- Election, process by which the cluster agrees on a new leader.
+- Client, node external to the cluster.
+- Ingress, the flow messages from a client into the cluster.
+- Egress, response mesages from the cluster back to a client.
+
+=== Event Sourcing Basics
+
+Aeron Cluster's fault tolerance models is designed around the concept of event sourcing.  Martin Fowler
+https://martinfowler.com/eaaDev/EventSourcing.html[succinctly describes] Event Sourcing as:
+
+[quote]
+____
+Capture all changes to an application state as a sequence of events.
+____
+
+This means that a service, given a known initial state and a reproducible sequence of events can be restored to a state
+that it held in the past.  This provides a means to restore a system that has stopped (either crashed or manually
+stopped) and create a copies of the state of one service on multiple nodes.
+
+However, it is not quite that simple, in addition to storing initial state and all input events, the service must have
+all of its logic implemented deterministically.  Such that all of the output generated for the same set of inputs is the
+same.  Ensure that the application logic is deterministic is outside of the control of Aeron Cluster an is the
+responsibility of the developer(s) building the application.
+
+[TIP]
+====
+Be careful to ensure determinism with clustered services, common pitfalls include:
+
+- Timestamps
+- Random Numbers
+- Iterating over some types of collections, eg. HashMaps.
+====
+
+Aeron does provide some assistance in this area, specifically around timestamp, which we will cover later in the
+tutorial.
+
+Event Sourcing is incredibly useful as an approach for building reliable in-memory systems, which is common among a
+number of very high performance systems, e.g. financial exchanges.  As the I/O is limited to a single append of the
+incoming event to a log before applying changes the application logic's in-memory state and generating any associated
+output events.
+
+In addition to writing all of the messages to a log, for practical reasons it is useful to have a means to take a
+snapshot of the current state of the application logic.  The when recovering the system, events are replayed from this
+snapshot rather than from the "beginning of time".  Snapshots are generally taken periodically, e.g. daily or hourly.
+The frequency of the snapshot should be determined by the volume of data into the system, the throughput of the business
+logic and the desired mean time to recovery.  It is not uncommon to have systems that may take an hour or two to recover
+from a days worth of messages, in those system snapshotting every 30 minutes may be more appropriate.
+
+=== Components of Aeron Cluster
+
+One of the key design goals of Aeron is to build a system that is highly composable, i.e. that functionality that
+already exists as a useful to should be reused.  E.g. Aeron Archive which provides a means to persist an Aeron stream is
+used by Aeron Cluster to persist the Raft log.  Therefore to successfully run a cluster node it is necessary to have one
+(or at least one in the case of ClusteredServiceContainer) of these running.  Because all communication between these
+components uses IPC they can be run all in the same process, in separate processes or any arbitrary combination.
+
+==== MediaDriver
+
+The MediaDriver is the means by which data is moved to, from, and around the cluster.  E.g. Aeron's multicast and
+multi-destination-cast functionality is used for offering data into the cluster and ensuring that any active leader
+receives it.  Aeron Cluster reuses the Publication and Subscription functionality already provides to handle all
+distributed and inter-process communications.
+
+NOTE: Currently  only the Java implementation of the MediaDriver is supported for use in Aeron Cluster.
+
+==== Archive
+
+Raft is primarily a log replication protocol, so Aeron Cluster uses Aeron's Archive functionality as the means to
+persist its log.
+
+==== ConsensusModule
+
+The Consensus Module is the key component with Aeron Cluster and provides the functionality for ensuring the nodes have
+a consistent copy of the replicated event log.  The Consensus Module will co-ordinate with the Archive to persist
+messages, replicate/ack messages to/from other nodes and deliver messages through to the Clustered Services.
+
+==== ClusteredServiceContainer
+
+This is the service that is running the developer supplied application logic.  There can be one or more clustered
+services per node.  Aeron Cluster provides a container for the application logic to run within.  There is a
+ClusteredService interface that must be implementation by the application that will supply all of the events from the
+cluster.
+
+== Configuring a Simple Cluster
+
+Because there are a number of moving parts to setting up a cluster node, one of the trickiest parts of using Aeron
+Cluster is getting the configuration correct.  The first part of this tutorial will focus on getting a simple cluster up
+and running with all of the components running in a single process.  Later parts of the tutorial will focus on more
+complex set ups.
+
+== Multiple Services Per Cluster Node
+
+== Dynamically Add/Removing Nodes from a Cluster

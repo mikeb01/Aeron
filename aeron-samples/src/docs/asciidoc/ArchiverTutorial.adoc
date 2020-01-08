@@ -16,6 +16,8 @@ source code.
 
 endif::[]
 
+IMPORTANT: This tutorial is currently a work in progress, information may be missing or incomplete.
+
 This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
 
 == Introduction
