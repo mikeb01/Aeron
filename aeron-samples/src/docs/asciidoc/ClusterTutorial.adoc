@@ -1,4 +1,4 @@
-:sourcedir: ../../../src/main/java
+:sampleSourceDir: ../../../src/main/java
 
 = Aeron Cluster Tutorial
 
@@ -20,7 +20,7 @@ IMPORTANT: This tutorial is currently a work in progress, information may be mis
 
 This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
 
-== Introduction
+== 1. Introduction
 
 Aeron Cluster is feature that builds upon Aeron and Archive to create a distributed system that contains multiple
 redundant instances of the same service whose state is kept synchronized though Aeron Cluster's implementation of the
@@ -121,6 +121,70 @@ This is the service that is running the developer supplied application logic.  T
 services per node.  Aeron Cluster provides a container for the application logic to run within.  There is a
 ClusteredService interface that must be implementation by the application that will supply all of the events from the
 cluster.
+
+== 2. Getting Started
+
+Install JDK 8 or JDK 11.
+
+The simplest way to get started with Aeron is to use the aeron-all jar.  This contains all of the aeron functionality
+including Archive and Cluster as well as including the Agrona jar inside of it.  Aeron has no other dependencies.  List
+most open source proejects you can use a Maven dependency to pull the code in from Maven central.  The current stable
+version is `1.24.0`, however it is recommended that you https://search.maven.org/artifact/io.aeron/aeron-all[check] to
+see if there is a more up to date version available.
+
+[source,XML]
+----
+<dependency>
+    <groupId>io.aeron</groupId>
+    <artifactId>aeron-all</artifactId>
+    <version>1.24.0</version>
+</dependency>
+----
+
+Aeron is also available as individual jars for each part, taking advantage of that packaging will be described in a
+later part of the tutorial.
+
+== 3. Implementing a Clustered Service
+
+The first step to setting up a cluster is to first implement the application logic.  Initially in this tutorial we are
+going implement a very simple service it will receive a string and respond back with the number of times that string has
+been sent to the cluster.  To properly demonstrate the state management and recovery features of cluster it is important
+to have some functionality that is stateful, rather than something like an echo service.
+
+First we must define the link between the application logic and the Aeron Cluster.  This is achieved by implementing the
+`ClusteredService` interface.
+
+[source,Java,indent=0]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=new_service]
+----
+
+=== onStart
+
+The `ClusterService` interface defines a number of callbacks that inform us of message and lifecycle events as they
+occur, the first one that concerns us is the `onStart` callback.  This will before any input messages, either from log
+replay or live from a client.  It is during this phase that we need to load the initial state of the service.  Aeron
+Cluster passes in a `Image` that will contain the most recent snapshot of the service.  The service should take care of
+deserializing the data from the image and initialize the state of the service.
+
+[source,Java,indent=0]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=start]
+----
+
+<1> The snapshot can be null (normally this occurs the first time that the service is started).  We also will run until
+the snapshot image is reached the end.  For a real application, it should also include enough information to determine
+that it has reached the end of the stored data.  Then the end of the end of the application data can be matched against
+the end of the image to sanity the snaphost.
+
+<2> Use `Cluster::idle(int)` to allow the service to pause in a friendly manner when the image is not yet complete but
+not data was received on the last poll.
+
+=== onTakeSnapshot
+
+Rather than jump ahead to message handling, to complete the picture around start up we should look at how the data makes
+its way into the snapshot.  There is a callback `ClusterService::onTakeSnapshot(ExclusivePublication)` that will be
+called when it is time to snapshot the state of the service.
 
 == Configuring a Simple Cluster
 

@@ -795,6 +795,7 @@ project(':aeron-samples') {
 
     dependencies {
         api project(':aeron-archive')
+        api project(':aeron-cluster')
         implementation "org.hdrhistogram:HdrHistogram:${hdrHistogramVersion}"
     }
 
