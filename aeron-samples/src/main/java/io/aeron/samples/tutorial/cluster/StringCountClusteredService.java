@@ -18,8 +18,9 @@ import java.util.HashMap;
 public class StringCountClusteredService implements ClusteredService
 // end::new_service[]
 {
-    private final HashMap<String, MutableInteger> receviedStrings = new HashMap<>();
     private final ExpandableArrayBuffer egressMessageBuffer = new ExpandableArrayBuffer(4);
+
+    private final HashMap<String, MutableInteger> receivedStrings = new HashMap<>();
 
     // tag::start[]
     public void onStart(final Cluster cluster, final Image snapshotImage)
@@ -30,7 +31,7 @@ public class StringCountClusteredService implements ClusteredService
             {
                 final int count = buffer.getInt(offset);
                 final String receivedString = buffer.getStringAscii(offset + BitUtil.SIZE_OF_INT);
-                receviedStrings.put(receivedString, new MutableInteger(count));
+                receivedStrings.put(receivedString, new MutableInteger(count));
             }, 10);
 
             cluster.idle(fragmentsPolled);                              // <2>
@@ -57,7 +58,7 @@ public class StringCountClusteredService implements ClusteredService
         final Header header)
     {
         final String receivedString = buffer.getStringUtf8(offset);
-        MutableInteger mutableInteger = receviedStrings.computeIfAbsent(receivedString, s -> new MutableInteger(0));
+        MutableInteger mutableInteger = receivedStrings.computeIfAbsent(receivedString, s -> new MutableInteger(0));
         mutableInteger.value++;
 
         egressMessageBuffer.putInt(0, mutableInteger.value);
