@@ -40,22 +40,12 @@ public class StringCountClusteredService implements ClusteredService
     public void onStart(final Cluster cluster, final Image snapshotImage)
     {
         this.cluster = cluster;
-        if (null != snapshotImage)
+        if (null != snapshotImage)  // <1>
         {
             loadSnapshot(cluster, snapshotImage);
         }
     }
     // end::start[]
-
-    public void onSessionOpen(final ClientSession session, final long timestamp)
-    {
-
-    }
-
-    public void onSessionClose(final ClientSession session, final long timestamp, final CloseReason closeReason)
-    {
-
-    }
 
     // tag::message[]
     public void onSessionMessage(
@@ -68,35 +58,32 @@ public class StringCountClusteredService implements ClusteredService
     {
         final long correlationId = buffer.getLong(offset);
         final String key = buffer.getStringUtf8(offset + BitUtil.SIZE_OF_LONG);
-        final MutableInteger mutableInteger = receivedStrings.computeIfAbsent(key, s -> new MutableInteger(0));
+        final MutableInteger mutableInteger = receivedStrings.computeIfAbsent(
+            key, s -> new MutableInteger(0));
         mutableInteger.value++;
 
         egressMessageBuffer.putLong(0, correlationId);
         egressMessageBuffer.putInt(BitUtil.SIZE_OF_LONG, mutableInteger.value);
 
-        if (null != session)
+        if (null != session)                                                           // <1>
         {
-            while (session.offer(egressMessageBuffer, 0, BitUtil.SIZE_OF_LONG + BitUtil.SIZE_OF_INT) < 0)
+            while (0 > session.offer(
+                egressMessageBuffer, 0, BitUtil.SIZE_OF_LONG + BitUtil.SIZE_OF_INT))   // <2>
             {
-                cluster.idle();
+                cluster.idle();                                                        // <3>
             }
         }
     }
     // end::message[]
-
-    public void onTimerEvent(final long correlationId, final long timestamp)
-    {
-
-    }
 
     // tag::takeSnapshot[]
     public void onTakeSnapshot(final ExclusivePublication snapshotPublication)
     {
         final MutableInteger position = new MutableInteger(0);
 
-        snapshotMessageBuffer.putInt(position.value, receivedStrings.size());
+        snapshotMessageBuffer.putInt(position.value, receivedStrings.size());               // <1>
         position.value += BitUtil.SIZE_OF_INT;
-        receivedStrings.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e ->
+        receivedStrings.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> // <2>
         {
             final int encodedLength = encodeStringUtf8(snapshotMessageBuffer, position.value, e.getKey());
             position.value += encodedLength;
@@ -105,17 +92,18 @@ public class StringCountClusteredService implements ClusteredService
         });
 
         final int totalMessageLength = position.value;
-        final int maxMessageLength = snapshotPublication.maxPayloadLength() - APPLICATION_HEADER_LENGTH;
+        final int maxMessageLength =
+            snapshotPublication.maxPayloadLength() - APPLICATION_HEADER_LENGTH;             // <3>
 
         int offset = 0;
         while (offset < totalMessageLength)
         {
-            snapshotHeaderBuffer.putInt(0, offset);
+            snapshotHeaderBuffer.putInt(0, offset);                                         // <4>
             snapshotHeaderBuffer.putInt(BitUtil.SIZE_OF_INT, totalMessageLength);
 
-            final int length = Math.min(maxMessageLength, totalMessageLength - offset);
+            final int length = Math.min(maxMessageLength, totalMessageLength - offset);     // <5>
 
-            while (snapshotPublication.offer(
+            while (snapshotPublication.offer(                                               // <6>
                 snapshotHeaderBuffer, 0, APPLICATION_HEADER_LENGTH,
                 snapshotMessageBuffer, offset, length) < 0)
             {
@@ -134,19 +122,21 @@ public class StringCountClusteredService implements ClusteredService
         final MutableInteger messageLength = new MutableInteger(0);
         final MutableInteger totalLength = new MutableInteger(0);
 
-        while (!snapshotImage.isEndOfStream())  // <1>
+        while (!snapshotImage.isEndOfStream())                  // <1>
         {
-            final int fragmentsPolled = snapshotImage.poll((buffer, offset, length, header) ->
-            {
-                messageOffset.value = buffer.getInt(offset);
-                totalLength.value = buffer.getInt(offset + BitUtil.SIZE_OF_INT);
-                messageLength.value = length - APPLICATION_HEADER_LENGTH;
+            final int fragmentsPolled = snapshotImage.poll(     // <2>
+                (buffer, offset, length, header) ->
+                {
+                    messageOffset.value = buffer.getInt(offset);
+                    totalLength.value = buffer.getInt(offset + BitUtil.SIZE_OF_INT);
+                    messageLength.value = length - APPLICATION_HEADER_LENGTH;
 
-                snapshotLoadBuffer.putBytes(
-                    messageOffset.value, buffer, offset + APPLICATION_HEADER_LENGTH, messageLength.value);
-            }, 10);
+                    snapshotLoadBuffer.putBytes(                // <3>
+                        messageOffset.value, buffer, offset + APPLICATION_HEADER_LENGTH, messageLength.value);
+                }, 10);
 
-            if (0 < totalLength.value && messageOffset.value + messageLength.value  == totalLength.value)
+            if (0 < totalLength.value &&                        // <4>
+                messageOffset.value + messageLength.value == totalLength.value)
             {
                 int position = 0;
                 final int numberOfEntries = snapshotLoadBuffer.getInt(position);
@@ -163,14 +153,16 @@ public class StringCountClusteredService implements ClusteredService
                     receivedStrings.put(keyReference.ref, new MutableInteger(count));
                 }
 
-                assert receivedStrings.size() == numberOfEntries : "Sanity check size of map";
+                assert receivedStrings.size() == numberOfEntries :
+                    "Sanity check size of map";                 // <5>
 
-                break;
+                break;                                          // <6>
             }
 
-            cluster.idle(fragmentsPolled);      // <2>
+            cluster.idle(fragmentsPolled);                      // <7>
         }
 
+        assert snapshotImage.isEndOfStream();                   // <8>
         assert messageOffset.value + messageLength.value == totalLength.value :
             "Sanity check that snapshot is complete";
     }
@@ -182,6 +174,21 @@ public class StringCountClusteredService implements ClusteredService
     }
 
     public void onTerminate(final Cluster cluster)
+    {
+
+    }
+
+    public void onSessionOpen(final ClientSession session, final long timestamp)
+    {
+
+    }
+
+    public void onSessionClose(final ClientSession session, final long timestamp, final CloseReason closeReason)
+    {
+
+    }
+
+    public void onTimerEvent(final long correlationId, final long timestamp)
     {
 
     }
