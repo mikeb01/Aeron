@@ -73,7 +73,7 @@ Be careful to ensure determinism with clustered services, common pitfalls includ
 - Iterating over some types of collections, eg. HashMaps.
 ====
 
-Aeron does provide some assistance in this area, specifically around timestamp, which we will cover later in the
+Aeron does provide some assistance in this area, specifically around timestamps, which we will cover later in the
 tutorial.
 
 Event Sourcing is incredibly useful as an approach for building reliable in-memory systems, which is common among a
@@ -321,7 +321,7 @@ Before moving onto configuring our service to run in a cluster, a couple of poin
 
 [TIP]
 ====
-. Treats snapshot store and load as a messaging problem using a protocol to efficiently deal with fragmentation.
+. Treat snapshot store and load as a messaging problem using a protocol to efficiently deal with fragmentation.
 . Ensure message serialisation is encapsulated, preferably with a tool that provides a schema for the serialised data.
 . Write data to the snapshot in a deterministic order to allow for verification later.
 ====
