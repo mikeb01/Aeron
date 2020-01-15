@@ -1,4 +1,5 @@
 :sampleSourceDir: ../../../src/main/java
+:aeronVersion: 1.25.0
 
 = Aeron Cluster Tutorial
 
@@ -44,6 +45,7 @@ acknowledgements.
 - Client, node external to the cluster.
 - Ingress, the flow messages from a client into the cluster.
 - Egress, response mesages from the cluster back to a client.
+- Snapshot, serialised representation of the application logic's state.
 
 === Event Sourcing Basics
 
@@ -77,24 +79,26 @@ Aeron does provide some assistance in this area, specifically around timestamps,
 tutorial.
 
 Event Sourcing is incredibly useful as an approach for building reliable in-memory systems, which is common among a
-number of very high performance systems, e.g. financial exchanges.  As the I/O is limited to a single append of the
-incoming event to a log before applying changes the application logic's in-memory state and generating any associated
-output events.
+number of very high performance systems, e.g. financial exchanges.  This is because the I/O is limited to a single
+append of the incoming event to a log before applying changes the application logic's in-memory state and generating any
+associated output events.
 
-In addition to writing all of the messages to a log, for practical reasons it is useful to have a means to take a
-snapshot of the current state of the application logic.  The when recovering the system, events are replayed from this
-snapshot rather than from the "beginning of time".  Snapshots are generally taken periodically, e.g. daily or hourly.
-The frequency of the snapshot should be determined by the volume of data into the system, the throughput of the business
-logic and the desired mean time to recovery.  It is not uncommon to have systems that may take an hour or two to recover
-from a days worth of messages, in those system snapshotting every 30 minutes may be more appropriate.
+In addition to writing all of the messages to a log it is necessary to have a means to take a snapshot of the current
+state of the application logic.  The when recovering the system, events are replayed from this snapshot rather than from
+the "beginning of time".  Snapshots are generally taken periodically, e.g. daily or hourly. The frequency of the
+snapshot should be determined by the volume of data into the system, the throughput of the business logic and the
+desired mean time to recovery.  It is not uncommon to have systems that may take an hour or two to recover from a days
+worth of messages, in those systems snapshotting every 30 minutes may be more appropriate.
 
 === Components of Aeron Cluster
 
-One of the key design goals of Aeron is to build a system that is highly composable, i.e. that functionality that
-already exists as a useful to should be reused.  E.g. Aeron Archive which provides a means to persist an Aeron stream is
-used by Aeron Cluster to persist the Raft log.  Therefore to successfully run a cluster node it is necessary to have one
-(or at least one in the case of ClusteredServiceContainer) of these running.  Because all communication between these
-components uses IPC they can be run all in the same process, in separate processes or any arbitrary combination.
+One of the key design goals of Aeron is to build a system that is highly composable.  E.g. Aeron Archive which provides
+a means to persist an Aeron stream is used by Aeron Cluster to persist the Raft log and messages a communicated around
+the cluster using Aeron's Media Driver.  Therefore Aeron Cluster is an aggregation of a number of existing Aeron
+components and a few new ones.  To successfully run a cluster node it is necessary to have one (or at least one in the
+case of ClusteredServiceContainer) of each of the Aeron components running.  Because all communication between these
+components within a single node uses IPC they can be run all in the same process, in separate processes or any arbitrary
+combination.
 
 ==== MediaDriver
 
@@ -130,15 +134,15 @@ Install JDK 8 or JDK 11.
 The simplest way to get started with Aeron is to use the aeron-all jar.  This contains all of the aeron functionality
 including Archive and Cluster as well as including the Agrona jar inside of it.  Aeron has no other dependencies.  List
 most open source proejects you can use a Maven dependency to pull the code in from Maven central.  The current stable
-version is `1.24.0`, however it is recommended that you https://search.maven.org/artifact/io.aeron/aeron-all[check] to
-see if there is a more up to date version available.
+version is `{aeronVersion}`, however it is recommended that you
+https://search.maven.org/artifact/io.aeron/aeron-all[check] to see if there is a more up to date version available.
 
-[source,XML]
+[source, XML, subs="attributes+"]
 ----
 <dependency>
     <groupId>io.aeron</groupId>
     <artifactId>aeron-all</artifactId>
-    <version>1.24.0</version>
+    <version>{aeronVersion}</version>
 </dependency>
 ----
 
@@ -148,97 +152,163 @@ later part of the tutorial.
 == 3. Implementing a Clustered Service
 
 The first step to setting up a cluster is to first implement the application logic.  Initially in this tutorial we are
-going implement a very simple service it will receive a string and respond back with the number of times that string has
-been sent to the cluster.  To properly demonstrate the state management and recovery features of cluster it is important
-to have some functionality that is stateful, rather than something like an echo service.  For this example so that we
-get a good understanding of some the complexities involved, especially around snapshotting we are going to show all of
-the gory details of how to handle messages, send responses, snapshotting, and loading.  It is unlikely that production
-code would like like this, you would probably want to have a cleaner separation between concerns.  We will look at
-examples of that shape in some of the latter sections of the tutorial.  For now we are going to see how the sausages get
-made.
+going implement a very simple auction service.  It will have one auction and will track a best price and an id for the
+customer that bid that price.  To properly demonstrate the state management and recovery features of cluster it is
+important to have some functionality that is stateful, rather than something like an echo service.  For this example so
+that we get a good understanding of some the complexities involved, especially around snapshotting we are going to show
+all of the gory details of how to handle messages, send responses, snapshotting, and loading.  It is unlikely that
+production code would like like this, you would probably want to have a cleaner separation between concerns.  We will
+look at examples of that shape in some of the latter sections of the tutorial.  For now we are going to see how the
+sausages get made.
 
 First we must define the link between the application logic and the Aeron Cluster.  This is achieved by implementing the
 `ClusteredService` interface.
 
-[source,Java,indent=0,options="nowrap"]
+[source, Java, indent=0, options="nowrap"]
 ----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=new_service]
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=new_service]
 ----
 
 === Start Up
 
-The `ClusterService` interface defines a number of callbacks that inform us of message and lifecycle events as they
-occur, the first one that concerns us is the `onStart` callback.  This will before any input messages, either from log
-replay or live from a client.  It is during this phase that we need to load the initial state of the service.  Aeron
+The `ClusterService` interface defines a number of callbacks that inform us of messages and lifecycle events as they
+occur, the first one that concerns us is the `onStart` callback.  This will occur before any input messages, either from
+log replay or live from a client.  It is during this phase that we need to load the initial state of the service.  Aeron
 Cluster passes in a `Image` that will contain the most recent snapshot of the service.  The service should take care of
 deserializing the data from the image and initialize the state of the service.  We will come back to the details of how
 the snapshot is loaded.  We should also take a reference to the cluster at this point as we will need it in the future.
 
-[source,Java,indent=0,options="nowrap"]
+[source, Java, indent=0, options="nowrap"]
 ----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=start]
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=start]
 ----
 
-<1> The snapshot can be null (normally this occurs the first time that the service is started).  We also will run until
-the snapshot image is reached the end.  For a real application, it should also include enough information to determine
-that it has reached the end of the stored data.  Then the end of the end of the application data can be matched against
-the end of the image to sanity the snaphost.
-
+<1> The snapshot can be null (normally this occurs the first time that the service is started).
 
 === Handling Messages
 
 The `onSessionMessage` callback is the main entry point for requests coming into the cluster.  The cluster will define a
 single ingress channel and messages published to this channel will come in through this interface.  This method will
-also be called with the messages from the log when it is recovering the system from the stored message log.  One of the
-other features that Cluster provides is a reliable timestamp, as mentioned earlier this is one of the challenges of
-building event sourced systems.  Use this value a the timestamp within your application state and it will be consistent
-under replay.
+also be called with the messages from the log when it is recovering the system.  One of the other features that Cluster
+provides is a reliable timestamp, as mentioned earlier this is one of the challenges of building event sourced systems.
+Use this value as the timestamp within your application state and it will be consistent under replay.
 
-[source,Java,indent=0,options="nowrap"]
+[source, Java, indent=0, options="nowrap"]
 ----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=state]
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=state]
 ----
-[source,Java,indent=0,options="nowrap"]
+[source, Java, indent=0, options="nowrap"]
 ----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=message]
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=message]
 ----
 
-For our input message we have 2 fields, a 64 bit `correlationId` and a `String` which is the key value that we are going
-to count.
+For our input message we have 3 fields, a `correlationId` which it the customer supplied identifier for the message,
+`customerId` to identify the customer placing the bid, and a `price` (we've used a long for this, which represents the
+value in cents).
 
-<1> The `ClientSession` allows the service to get information about the calling client, but also provide a means to
+<1> Pull the data out of the message.  This is similar to the pattern used in a Aeron Subscription's `onFragment`
+callback when doing a poll.
+
+<2> Execute the business logic, in our this is applying the incoming bid to the auction to see if it is a winner.
+
+<3> The `ClientSession` allows the service to get information about the calling client, but also provide a means to
 return responses back to the client.  However the it will be `null` during recovery, so we need to check for that state
 and not offer a response in that case.
 
-<2> Use the `ClientSession` to send a response back to the client.  We return a message that contains the correlationId
-from the request and a 32 bit value indicating the number of times that particular string has been seen.
+<4> Serialise response message.
 
-<3> Use `Cluster::idle(int)` to allow the service to pause in a friendly manner when the image is not yet complete but
-not data was received on the last poll.  This method will pause the application code in the manner that is configured
-and it will take care of handling thread interrupts and ensure the node fails correctly.
+<5> Calling `offer` on the client session will return the response back on the egress channel.  Make sure that the
+return value for `offer` is check as it is a non-blocking call and not guaranteed to succeed.
+
+<6> When doing any busy loops within the clustered application use `Cluster::idle(int)` within the wait loop to allow
+the service to pause in a friendly manner.  It will take care of handling thread interrupts and ensure the node fails
+correctly.
 
 === Storing State
 
 As was mentioned earlier we need to have a means for our service to regularly take snapshots of its current state in
-order to reduce out mean time to recovery and be used during release migration.  There is a callback
+order to reduce the mean time to recovery and facilitate release migration.  There is a callback
 `ClusterService::onTakeSnapshot(ExclusivePublication)` that will be called when it is time to snapshot the state of the
-service.  BTW, brace yourselves this is where it gets a little bit ugly, but there are a couple of important concepts
-here that we wish to demonstrate.
+service.
 
-The first thing we need to deal with is that storing of a snapshot occurs over a `Publication` rather than being stored
-directly to a file.  This is because it may be read by another node elsewhere on the cluster.  Given that snapshotting
-is managed as stream of messages you need to think in terms messaging and its existing constraints.  Specifically that
-we need are limited by Aeron to the size of the messages that we can write.  We can't just publish all of the system's
-state as a single message message as Aeron messages are limited to `max(termLength/8, 16MB)`.  Given that constraint and
-that the state of the system could be quite a bit larger we need to have a means to split that data over multiple
-messages.  This means we need to think about snapshot store and load as producing and consuming messages according to a
-protocol.
+Aeron Cluster provides an `ExclusivePublication` to write a snapshot as the serialised representation of the application
+logic's state.  For real world applications snapshotting can become tricky.  The two big concerns you will have will be
+ensure that snapshots are written in a consistent manner and dealing with fragmentation of the application state across
+messages.  For now, our state is so simple that neither of those will impact use.  However, we will tackle them in a
+latter part of the tutorial.
 
-[source,Java,indent=0,options="nowrap"]
+[source, Java, indent=0, options="nowrap"]
 ----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=takeSnapshot]
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=takeSnapshot]
 ----
 
+<1> Write the persistent part of the application logic to a message buffer.  In our case, the currently winning customer
+id and bid price.
+
+<2> Write the message to the publication, again we need to check the return from the `offer` call and use
+`Cluster::idle` inside of the busy wait loop.
+
+=== Loading State
+
+As you may have noticed in the `onStart` method there was a call to load the snapshot.  Now that we have seen how the
+snapshot is written, we can look at how it is loaded.  We also will run until the snapshot image is reached the end.
+For a real application, it should also include enough information to determine that it has reached the end of the stored
+data.  Then the end of the end of the application data can be matched against the end of the image to sanity the
+snaphost.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=loadSnapshot]
+----
+
+<1> We can use the method `Image::isEndOfStream` to determine if there is going to be any more input.
+
+<2> Because our snapshot is stream of messages written to a publication, we use the `Image`'s poll method for extracting
+data from the snapshot.
+
+<3> Our total snapshot length (16 bytes) is generally going to be small than any reasonable MTU we can assume that all
+of the data will come in a single message.
+
+<4> Once all of the data is loaded we can initialise the application logic state from the snapshot.
+
+<5> Once we've loaded all of the data for the application we can break out of the snapshot loading loop.
+
+<6> Again make sure we use `Cluster::idle` in the tight loops.  It could take time for the snapshot to be propagated to
+the service so the number of fragments can be zero.
+
+<7> It is also worthwhile having some sanity checks, these ensure that the snapshot store/load code and Aeron agree on
+where the end of the input data is.  Here I've used asserts, but other mechanisms, e.g. log message, exceptions, could
+be used to indicate an issue.
+
+=== Other events
+
+There a number other events received by the `ClusteredService` interface, but we are going to ignore them for now and
+come back to them later.
+
+=== Summary
+
+As you have seen the with the current example without some clean separation between the application and system the code
+can very quickly get messy.  One the primary causes of this is that we have no clear specification for the messages
+either those sent from the client or the data being stored in the snapshot.  It is highly recommended that you use some
+tool that encapsulates the serialisation of the message data.  Preferably use a tool that allows the message
+specification to be represented as schema such that messages data can be decoded without requiring the application code
+(e.g Simple Binary Encoding). This will allow a clean separation between the various modules of your application and
+between the application and tools used for operation activities like migration, monitoring, and observability.
+
+== Configuring a Cluster
+
+Now we have our application implemented, we can move onto running it in a cluster. Because there are a number of moving
+parts to setting up a cluster node, one of the trickiest parts of using Aeron Cluster is getting the configuration
+correct.
+
+== Timers
+
+== Multiple Services Per Cluster Node
+
+== Dynamically Add/Removing Nodes from a Cluster
+
+
+////
 <1> To manage the fragmenting the arbitrary sized state we are going to serialise our state to a single buffer, in our
 case we are using the `snapshotMessageBuffer` as our temporary buffer for the keys and their counts.  This makes sense
 when the state of the system is as simple as this.  However in a real scenario you probably wouldn't want to serialise
@@ -268,55 +338,6 @@ is remaining, whichever is smallest.
 
 <6> Write the header and the message data to the publication using the gathering API.
 
-=== Loading State
-
-As you may have noticed in the `onStart` method there was a call to load the snapshot.  Now that we have seen how the
-snapshot is written, we can look at how it is loaded.
-
-[source,Java,indent=0,options="nowrap"]
-----
-include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/StringCountClusteredService.java[tag=loadSnapshot]
-----
-
-<1> We can use the method `Image::isEndOfStream` to determine if there is going to be any more input.
-
-<2> Because our snapshot is stream of messages written to a publication, we use the `Image`'s poll method for extracting
-the from the snapshot.
-
-<3> We read out the fragments and copy them into a buffer that is going to host the complete information for this
-application message.
-
-<4> When we have completed loading of all of the fragments of the application message, it can be deserialised into
-application data.  We use the `offset` and `totalLength` values that were sent on the application header along with the
-length field that comes from Aeron to determine if the application messages are fully loaded.
-
-<5> We wrote the number of entries at the first field of the application message, while not strictly required we can
-used this to sanity check the the snapshot data.  An `assert` statement is used here, but this could be a logged
-warning, an exception, ignored completely, or any other mechanism appropriate to the application.
-
-<6> Now that we know we have all of the data for our service's application state we stop loading.
-
-<7> Again make sure we use `Cluster::idle` in the tight loops.  It could take time for the snapshot to be propagated to
-the service so the number of fragments can be zero.
-
-<8> More sanity checks.  This ensures that the end of the data is the same as the logic end of the application
-information.  Not strictly required, but useful for finding bugs in application's snapshot and loading code.
-
-=== Other events
-
-There a number other events received by the `ClusteredService` interface, but we are going to ignore them for now and
-come back to them later.
-
-=== Summary
-
-As you have seen the with the current example without some clean separation between the application and system the code
-can very quickly get messy.  One the primary causes of this is that we have no clear specification for the messages
-either those sent from the client or the data being stored in the snapshot.  It is highly recommended that you use some
-tool that encapsulates the serialisation of the message data.  Preferably use a tool that allows the message
-specification to be represented as schema such that messages data can be decoded without requiring the application code
-(e.g Simple Binary Encoding). This will allow a clean separation between the various modules of your application and
-between the application and tools used for operation activities like migration, monitoring, and observability.
-
 Before moving onto configuring our service to run in a cluster, a couple of points to remember.
 
 [TIP]
@@ -325,14 +346,4 @@ Before moving onto configuring our service to run in a cluster, a couple of poin
 . Ensure message serialisation is encapsulated, preferably with a tool that provides a schema for the serialised data.
 . Write data to the snapshot in a deterministic order to allow for verification later.
 ====
-
-== Configuring a Cluster
-
-Because there are a number of moving parts to setting up a cluster node, one of the trickiest parts of using Aeron
-Cluster is getting the configuration correct.
-
-== Timers
-
-== Multiple Services Per Cluster Node
-
-== Dynamically Add/Removing Nodes from a Cluster
+////
