@@ -1,4 +1,5 @@
-:sampleSourceDir: ../../../src/main/java
+:sampleBaseDir: ../../..
+:sampleSourceDir: {sampleBaseDir}/src/main/java
 :aeronVersion: 1.25.0
 
 = Aeron Cluster Tutorial
@@ -10,7 +11,7 @@ and run:
 
 [source]
 ----
-$ ./gradle asciidoctor
+$ ./gradlew asciidoctor
 ----
 
 This will create a more nicely formatted file: `aeron-samples/build/asciidoc/html5/ArchiverTutorial.html` with inline
@@ -127,7 +128,7 @@ services per node.  Aeron Cluster provides a container for the application logic
 ClusteredService interface that must be implementation by the application that will supply all of the events from the
 cluster.
 
-== 2. Getting Started
+== 2. Getting Started Aeron Cluster
 
 Install JDK 8 or JDK 11.
 
@@ -148,6 +149,36 @@ https://search.maven.org/artifact/io.aeron/aeron-all[check] to see if there is a
 
 Aeron is also available as individual jars for each part, taking advantage of that packaging will be described in a
 later part of the tutorial.
+
+=== 2.1 Using the Source From this Tutorial
+
+In order to look at the full examples and run the code from this tutorial you will need to checkout the full Aeron
+source code.
+
+----
+git clone https://github.com/real-logic/aeron.git
+----
+
+The location on your computer where this gets checked out to will be referred to as `<AERON_HOME>`.  You will probably
+want to build Aeron now to make sure that you have the environment working correctly.
+
+----
+cd <AERON_HOME>
+./gradlew
+----
+
+And to build the tutorial (if you haven't already)
+
+----
+./gradlew asciidoctor
+----
+
+The code and scripts used in this tutorial are in:
+----
+<AERON_HOME>/aeron-samples/src/main/java/io/aeron/samples/tutorial/cluster
+<AERON_HOME>/aeron-samples/scripts/cluster
+----
+
 
 == 3. Implementing a Clustered Service
 
@@ -299,11 +330,226 @@ between the application and tools used for operation activities like migration, 
 
 Now we have our application implemented, we can move onto running it in a cluster. Because there are a number of moving
 parts to setting up a cluster node, one of the trickiest parts of using Aeron Cluster is getting the configuration
-correct.
+correct.  We are going to start with a static three-node cluster with a simplified configuration where all of the
+components (MediaDriver, Archive, ConsensusModule and ClusteredServiceContainer) for a single node are hosted in a
+single process.  We will then start the cluster as three separate processes.
+
+=== Running Multiple Nodes on the Same Host
+
+In a production deployment, you will obviously want to run the 3 instances on three separate servers, however for our
+example we just want to run the services on a single machine.  This does make port allocation a little bit tricky as
+each node within the cluster needs to bind to a number of ports, so we need to make sure that each node has a distinct
+set of ports.  We could do this with VMs or containers, but in the interest of simplicity we are going to specify a port
+range for each node.  I.e:
+
+- Node 0, ports: 9000-9099
+- Node 1, ports: 9100-9199
+- Node 2, ports: 9200-9299
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=ports]
+----
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=udp_channel]
+----
+
+While we don't really need 100 ports for each node (closer to 10), it does make it clear which ports are assigned to
+each service.  Each endpoint will be an offset from the first port in a node's range.  E.g. the archive control request
+port has an offset of 1, so for Node 2 it will have port 9201.
+
+To start the cluster node we are going define our own class that has a main method, it will construct all of contexts
+for the necessary components and then start them all.  As indicated above we are going to give each node of the cluster
+a unique id, strictly sequential starting at 0.  We are also going to use this value as the cluster member id.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=new_service]
+//...
+----
+[source, Java, indent=0, options="nowrap"]
+----
+//...
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=main]
+----
+
+<1> Pass in the node id as a command line parameter to the service so that we can reuse the code for each instance of
+the service.
+
+<2> Define a set of hostnames for the cluster.  For now everything is running on localhost, but we could put actual
+hostnames or ip addresses in this list an run the same example across multiple servers.
+
+<3> As well as making sure that we don't have any port collisions we don't want our services sharing directories on the
+file system, so we use the node id to generate a unique file system location for each node.
+
+<4> Create a shutdown barrier that will be used later to cleanly trap and allow the service to exit.
+
+=== Configuration
+
+==== Media Driver
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=media_driver]
+----
+
+Note we've specified the custom aeronDirName to allow multiple Media Drivers on the same host.  There is nothing special
+in the configuration in the Media Driver specific to Cluster.
+
+==== Archive
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=archive]
+----
+
+Again nothing special in the Archive configuration specific to Cluster.  We've used the same aeronDirName as used by the
+Media Driver.  The `controlChannel` uses node specific port in the construction of its UDP channel.
+
+=== Archive Client
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=archive_client]
+----
+
+Because Cluster's Consensus Module requires that we write a log file to support he Raft protocol, we need a client for
+the constructed Archive for it to use.  The client needs a channel to receive responses back from the cluster, so again
+we are using the node specific port to prevent collisions.
+
+=== Consensus Module
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=consensus_module]
+----
+
+This is first of the two configuration sections that specific to Cluster.  The Consensus Module is responsible for
+handling the main aspects of the Raft protocol, e.g. leader election, ensuring consensus-based consistency of the data
+in the log and passing properly replicated messages onto the Cluster Container.
+
+<1> Each Consensus Module needs an identifier within the Cluster, we are going to use the `nodeId` that we have used to
+separate each of the nodes.
+
+
+<2> This is probably the trickiest part of the configuration.  It specifies all of the static members of the cluster
+along with all of the endpoints that they require for the various operations of the Consensus Module.  These are encoded
+into a single string of the form.
++
+----
+0,client-facing:port,member-facing:port,log:port,transfer:port,archive:port| \
+1,client-facing:port,member-facing:port,log:port,transfer:port,archive:port| ...
+----
+Where each of the leading numeric values is a member id for the cluster (as specified in the `clusterMemberId` method).
+The values for each endpoint represent:
+
+* client-facing, where the client will connect to for the ingress channel (if using multi-destination cast).
+* member-facing, where other members of the cluster will connect to.
+* log, used to replicate logs to.
+* transfer, used for a stream that members can use to catch up to a leader.
+* archive, the same endpoint used to control archive running on this node.
++
+In our example we've used the same hostname for each of the endpoints (localhost), however each endpoint allows the
+specification of a host, so that traffic could potentially be separated if required, e.g. running member-facing traffic
+on a separate network to the client-facing traffic.
+
+<3> Use the node's specific media driver.
+
+<4> Specify the data directory for the Consensus Module.  Make sure it is  node specific.
+
+<5> Define the ingress channel for the cluster.  Note this value does not need to be the full channel URI.  It can be a
+template that specifies the parameters, but excludes the endpoint, which will be filled using value from the
+clusterMembersString as appropriate for this node.
+
+<6> Specify the log channel.  Like the ingress channel this is specified as a template.  This channel needs to be a
+multi-destination cast or multicast channel.  In our example we are using multi-destination cast using manual
+configuration, hence we need a separate control endpoint (include a port) used for adding and removing destination to
+the publication.
+
+<7> Clone the Archive Client context that the Consensus Module will use to talk to the Archive.
+
+==== Clustered Service Container
+
+The final part of the configuration is the component that will actually run our application logic.  It is possible to
+have multiple Clustered Service Containers per Consensus Module and have them talk to each other using IPC.  In our
+simplified case we just have the one.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=clustered_service]
+----
+
+<1> Again we use the node specific Media Driver.
+
+<2> And the node's Archive, via the Archive Client configuration.
+
+<3> This is the point where we bind an instance of our application logic to the cluster.
+
+=== Running the Cluster
+
+Now that the cluster is configured we start running, the code for launching the service is as follows.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=running]
+----
+
+<1> Launches a `ClusteredMediaDriver` that includes instances of the Media Driver, Archive and Consensus Module.
+
+<2> Immediately afterward we launch a `ClusteredServiceContainer` which is our application.
+
+<3> Use the shutdown barrier to keep our system live until it is signalled to shutdown (e.g. using SIG_TERM or SIG_INT
+on Unix).
+
+There is a script provide to launch the cluster.  Assuming that you've followed step 2.1 above you should be able to do
+the following:
+// TODO need to add windows command examples.
+
+----
+cd <AERON_HOME>/aeron-samples/scripts/cluster
+./basic-auction-cluster
+----
+
+This will spit out a whole lot of logging but should end with something like:
+
+----
+CLUSTER: ELECTION_STATE_CHANGE, FOLLOWER_TRANSITION -> FOLLOWER_READY, memberId=2
+CLUSTER: ELECTION_STATE_CHANGE, FOLLOWER_CATCHUP -> FOLLOWER_TRANSITION, memberId=1
+CLUSTER: ELECTION_STATE_CHANGE, FOLLOWER_TRANSITION -> FOLLOWER_READY, memberId=1
+CLUSTER: ELECTION_STATE_CHANGE, FOLLOWER_READY -> CLOSE, memberId=1
+CLUSTER: ELECTION_STATE_CHANGE, FOLLOWER_READY -> CLOSE, memberId=2
+CLUSTER: ELECTION_STATE_CHANGE, LEADER_READY -> CLOSE, memberId=0
+----
+
+We now have our new service running in a cluster.
+
+You can shutdown the nodes using the following:
+----
+pkill -f BasicAuctionClusteredServiceNode
+----
+
+Lets look briefly how the script launches the code.
+
+[source, Bash, indent=0, options="nowrap"]
+----
+include::{sampleBaseDir}/scripts/cluster/basic-auction-cluster[tag=start_jvm]
+----
+
+The `-javaagent:../../../aeron-agent/build/libs/aeron-agent-${VERSION}-all.jar` allows the weaving of the Aeron's
+logging agent into the running code.  Specifying `-Daeron.event.cluster.log=all` tells the agent to log all of the
+events relating to the cluster operation.
+
+== 4. Using a Cluster Client
+
+While we now have our cluster up and running, we can't do anything with it until we have a client that will iteract with
+the cluster.
 
 == Timers
 
 == Multiple Services Per Cluster Node
+
+== More Complex State
 
 == Dynamically Add/Removing Nodes from a Cluster
 

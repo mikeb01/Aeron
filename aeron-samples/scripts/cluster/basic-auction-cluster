@@ -17,6 +17,7 @@
 
 VERSION=`cat ../../../version.txt`
 
+# tag::start_jvm[]
 function startNode() {
     ${JAVA_HOME}/bin/java \
         -cp ../../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
@@ -28,10 +29,12 @@ function startNode() {
         -XX:GuaranteedSafepointInterval=300000 \
         -XX:+UseParallelOldGC \
         -Daeron.event.cluster.log=all \
-        ${JVM_OPTS} io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode $1 &
+        ${JVM_OPTS} \
+        io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode $1 &
 }
 
 startNode 0
 startNode 1
 startNode 2
+# end::start_jvm[]
 
