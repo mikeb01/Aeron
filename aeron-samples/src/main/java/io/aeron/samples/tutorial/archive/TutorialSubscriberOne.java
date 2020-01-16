@@ -9,7 +9,7 @@ import org.agrona.collections.MutableLong;
 
 public class TutorialSubscriberOne
 {
-    public static void main(String[] args)
+    public static void main(final String[] args)
     {
         // tag::connect[]
         try (MediaDriver mediaDriver = MediaDriver.launchEmbedded())                  // <1>
@@ -18,9 +18,8 @@ public class TutorialSubscriberOne
                 .aeronDirectoryName(mediaDriver.aeronDirectoryName());
             final AeronArchive.Context aArchiveCtx = new AeronArchive.Context();
 
-            try (final Aeron aeron = Aeron.connect(aeronCtx);
-                 final AeronArchive aeronArchive = AeronArchive.connect(
-                     aArchiveCtx.aeron(aeron).ownsAeronClient(true)))                 // <2>
+            try (Aeron aeron = Aeron.connect(aeronCtx);                               // <2>
+                AeronArchive aeronArchive = AeronArchive.connect(aArchiveCtx.aeron(aeron).ownsAeronClient(true)))
             {
                 final DescriptorHandler descriptorHandler = new DescriptorHandler(aeronArchive);
                 aeronArchive.listRecordings(0, Integer.MAX_VALUE, descriptorHandler); // <3>
@@ -33,7 +32,7 @@ public class TutorialSubscriberOne
     {
         private final AeronArchive aeronArchive;
 
-        DescriptorHandler(AeronArchive aeronArchive)
+        DescriptorHandler(final AeronArchive aeronArchive)
         {
             this.aeronArchive = aeronArchive;
         }
@@ -41,11 +40,22 @@ public class TutorialSubscriberOne
         @Override
         // tag::handler[]
         public void onRecordingDescriptor(
-            long controlSessionId, long correlationId, long recordingId,
-            long startTimestamp, long stopTimestamp, long startPosition, long stopPosition,
-            int initialTermId, int segmentFileLength, int termBufferLength, int mtuLength,
-            int sessionId, int streamId,
-            String strippedChannel, String originalChannel, String sourceIdentity)
+            final long controlSessionId,
+            final long correlationId,
+            final long recordingId,
+            final long startTimestamp,
+            final long stopTimestamp,
+            final long startPosition,
+            final long stopPosition,
+            final int initialTermId,
+            final int segmentFileLength,
+            final int termBufferLength,
+            final int mtuLength,
+            final int sessionId,
+            final int streamId,
+            final String strippedChannel,
+            final String originalChannel,
+            final String sourceIdentity)
         {
             System.out.printf(
                 "Channel: %s, Stream: %d, start: %d, stop: %d%n",
@@ -64,13 +74,12 @@ public class TutorialSubscriberOne
 
             do
             {
-                replay.poll(                                                       // <4>
-                    (buffer, offset, length, header) ->
-                    {
-                        final String message = buffer.getStringAscii(offset);
-                        System.out.println(message + ", header position: " + header.position());
-                        lastPosition.value = header.position();                    // <5>
-                    }, 100);
+                replay.poll((buffer, offset, length, header) ->                    // <4>
+                {
+                    final String message = buffer.getStringAscii(offset);
+                    System.out.println(message + ", header position: " + header.position());
+                    lastPosition.value = header.position();                        // <5>
+                }, 100);
             }
             while (lastPosition.value < stopPosition);
         }

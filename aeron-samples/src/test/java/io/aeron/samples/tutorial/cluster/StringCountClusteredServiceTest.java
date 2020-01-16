@@ -64,7 +64,7 @@ class StringCountClusteredServiceTest
         final MutableDirectBuffer buffer = new ExpandableArrayBuffer(1024);
 
         long correlationId = rnd.nextLong();
-        for (String message : messages)
+        for (final String message : messages)
         {
             buffer.putLong(0, correlationId++);
             final int keyLength = buffer.putStringUtf8(BitUtil.SIZE_OF_LONG, message);
@@ -74,8 +74,8 @@ class StringCountClusteredServiceTest
         try (MediaDriver driver = MediaDriver.launchEmbedded(
             new MediaDriver.Context().threadingMode(ThreadingMode.SHARED));
             Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(driver.aeronDirectoryName()));
-            final ExclusivePublication snapshotPublication = aeron.addExclusivePublication(IPC_CHANNEL, STREAM_ID);
-            final Subscription subscription = aeron.addSubscription(IPC_CHANNEL, STREAM_ID))
+            ExclusivePublication snapshotPublication = aeron.addExclusivePublication(IPC_CHANNEL, STREAM_ID);
+            Subscription subscription = aeron.addSubscription(IPC_CHANNEL, STREAM_ID))
         {
             while (!snapshotPublication.isConnected())
             {
@@ -116,7 +116,7 @@ class StringCountClusteredServiceTest
         }
     }
 
-    private static List<String> generateRandomMessages(Random r, final int count, int length)
+    private static List<String> generateRandomMessages(final Random r, final int count, final int length)
     {
         final List<String> strings = new ArrayList<>();
         final byte[] b = new byte[length];
@@ -132,7 +132,7 @@ class StringCountClusteredServiceTest
         return strings;
     }
 
-    private static Object idle(InvocationOnMock invocation)
+    private static Object idle(final InvocationOnMock invocation)
     {
         yieldAndCheckInterrupt();
         return null;

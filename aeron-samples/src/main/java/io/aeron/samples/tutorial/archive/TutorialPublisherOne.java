@@ -10,7 +10,7 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 public class TutorialPublisherOne
 {
-    public static void main(String[] args)
+    public static void main(final String[] args)
     {
         // tag::connect[]
         final int numMessages = 10;
@@ -18,10 +18,10 @@ public class TutorialPublisherOne
         final AeronArchive.Context aArchiveCtx = new AeronArchive.Context();
 
         try (Aeron aeron = Aeron.connect(aeronCtx);
-             AeronArchive archiveClient = AeronArchive.connect(aArchiveCtx.aeron(aeron))) // <1>
+            AeronArchive archiveClient = AeronArchive.connect(aArchiveCtx.aeron(aeron)))  // <1>
         {
-            try (final Publication pub = archiveClient.addRecordedPublication(            // <2>
-                "aeron:udp?endpoint=localhost:4444", 10000))
+            try (Publication pub = archiveClient.addRecordedPublication(
+                "aeron:udp?endpoint=localhost:4444", 10000))                              // <2>
             {
                 publishMessages(pub, numMessages);
             }
@@ -30,7 +30,7 @@ public class TutorialPublisherOne
     }
 
     // tag::publication[]
-    private static void checkDeadline(long deadLineMs, long result) throws TimeoutException
+    private static void checkDeadline(final long deadLineMs, final long result) throws TimeoutException
     {
         if (System.currentTimeMillis() > deadLineMs)
         {
@@ -40,7 +40,7 @@ public class TutorialPublisherOne
         }
     }
 
-    private static void publishMessages(Publication pub, int numMessages)
+    private static void publishMessages(final Publication pub, final int numMessages)
     {
         final MutableDirectBuffer buffer = new UnsafeBuffer(new byte[1024]);
         for (int i = 0; i < numMessages; i++)

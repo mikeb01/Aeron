@@ -103,8 +103,8 @@ public class StringCountClusteredService implements ClusteredService
 
             final int length = Math.min(maxMessageLength, totalMessageLength - offset);     // <5>
 
-            while (snapshotPublication.offer(                                               // <6>
-                snapshotHeaderBuffer, 0, APPLICATION_HEADER_LENGTH,
+            while (snapshotPublication.offer(
+                snapshotHeaderBuffer, 0, APPLICATION_HEADER_LENGTH,                         // <6>
                 snapshotMessageBuffer, offset, length) < 0)
             {
                 cluster.idle();
@@ -115,6 +115,7 @@ public class StringCountClusteredService implements ClusteredService
     }
     // end::takeSnapshot[]
 
+    @SuppressWarnings("checkstyle:ParenPad")
     // tag::loadSnapshot[]
     private void loadSnapshot(final Cluster cluster, final Image snapshotImage)
     {
@@ -147,7 +148,7 @@ public class StringCountClusteredService implements ClusteredService
                 {
                     final int encodedLength = decodeStringUtf8(snapshotLoadBuffer, position, keyReference::set);
                     position += encodedLength;
-                    int count = snapshotLoadBuffer.getInt(position);
+                    final int count = snapshotLoadBuffer.getInt(position);
                     position += BitUtil.SIZE_OF_INT;
 
                     receivedStrings.put(keyReference.ref, new MutableInteger(count));
@@ -216,9 +217,13 @@ public class StringCountClusteredService implements ClusteredService
     public boolean equals(final Object o)
     {
         if (this == o)
-        { return true; }
+        {
+            return true;
+        }
         if (o == null || getClass() != o.getClass())
-        { return false; }
+        {
+            return false;
+        }
         final StringCountClusteredService that = (StringCountClusteredService)o;
         return receivedStrings.equals(that.receivedStrings);
     }
