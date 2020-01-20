@@ -18,8 +18,6 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 
-import static io.aeron.Aeron.NULL_VALUE;
-
 // tag::new_service[]
 public class BasicAuctionClusteredServiceNode
 // end::new_service[]
@@ -38,13 +36,13 @@ public class BasicAuctionClusteredServiceNode
     private static final int PORTS_PER_NODE = 100;
     private static final int ARCHIVE_CONTROL_REQUEST_PORT_OFFSET = 1;
     private static final int ARCHIVE_CONTROL_RESPONSE_PORT_OFFSET = 2;
-    private static final int CLIENT_FACING_PORT_OFFSET = 3;
+    public static final int CLIENT_FACING_PORT_OFFSET = 3;
     private static final int MEMBER_FACING_PORT_OFFSET = 4;
     private static final int LOG_PORT_OFFSET = 5;
     private static final int TRANSFER_PORT_OFFSET = 6;
     private static final int LOG_CONTROL_PORT_OFFSET = 7;
 
-    private static int calculatePort(final int nodeId, final int offset)
+    static int calculatePort(final int nodeId, final int offset)
     {
         return PORT_BASE + (nodeId * PORTS_PER_NODE) + offset;
     }
@@ -96,7 +94,7 @@ public class BasicAuctionClusteredServiceNode
     {
         if (args.length != 1)
         {
-            System.err.println("Usage java " + StringCountClusteredService.class.getName() + " <node id>");
+            System.err.println("Usage java " + BasicAuctionClusteredServiceNode.class.getName() + " <node id>");
             System.exit(1);
         }
 

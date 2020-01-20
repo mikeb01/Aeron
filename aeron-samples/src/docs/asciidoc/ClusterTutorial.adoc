@@ -542,8 +542,48 @@ events relating to the cluster operation.
 
 == 4. Using a Cluster Client
 
-While we now have our cluster up and running, we can't do anything with it until we have a client that will iteract with
-the cluster.
+While we now have our cluster up and running, we can't do anything with it until we have a client that will interact
+with the cluster.
+
+=== Connecting to a Cluster
+
+First off we need a way to connect our client to the cluster.  As you may of guess all of the message between the client
+and the cluster happens via Aeron, but we have an additional layer call AeronCluster that handles connections to the
+independent nodes and provides methods for offering messages into the cluster and polling for responses.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusterClient.java[tag=client]
+----
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusterClient.java[tag=connect]
+----
+
+<1> Launch a media driver that will allow communication with the cluster nodes.  We're using an embedded instance here
+to make it easier to launch multiple drivers on the same machine for use in this tutorial, but it would be perfectly
+viable to launch a single media driver and have multiple clients on the same host sharing the same media driver.
+
+<2> This is where we bind our client application code to the responses from the cluster.  This requires implementing the
+`EgressListener` interface, which provides callbacks for session messages, session related events (e.g. errors), and
+cluster events (e.g. new elected leaders).
+
+<3> Specify the channel to receive egress responses back from the cluster.  In our case we are using a UDP unicast
+response, which will limit responses to the session that sent them.  We are adjusting the port per client to allow for
+multiple clients on the same machine with multiple media drivers.  If a single media driver was used then this would not
+be necessary.
+
++
+
+It is possible to specify a multicast address here if you wanted all clients to see all responses.  Some systems may
+find this useful, e.g. an exchange with multiple gateways may wish to have the execution for a trade sent to a client
+that was on the passive side of a trade.
+
+<4> Specify the ingress channel for the cluster.  In our case as we are using multiple destinations we need to use the
+template style approach that was used when setting up the Consensus Module.  We just identify that access to the cluster
+is via UDP.
+
+<5> Identify the actual static endpoints for the cluster.  Will be merged into the configuration specified in <4>.
 
 == Timers
 

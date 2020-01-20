@@ -19,15 +19,16 @@ import java.util.Objects;
 public class BasicAuctionClusteredService implements ClusteredService
 // end::new_service[]
 {
-    private static final int CORRELATION_ID_OFFSET = 0;
-    private static final int CUSTOMER_ID_OFFSET = CORRELATION_ID_OFFSET + BitUtil.SIZE_OF_LONG;
-    private static final int PRICE_OFFSET = CUSTOMER_ID_OFFSET + BitUtil.SIZE_OF_LONG;
-    private static final int BID_SUCCEEDED_OFFSET = PRICE_OFFSET + BitUtil.SIZE_OF_LONG;
-    private static final int EGRESS_MESSAGE_LENGTH = BID_SUCCEEDED_OFFSET + BitUtil.SIZE_OF_BYTE;
+    public static final int CORRELATION_ID_OFFSET = 0;
+    public static final int CUSTOMER_ID_OFFSET = CORRELATION_ID_OFFSET + BitUtil.SIZE_OF_LONG;
+    public static final int PRICE_OFFSET = CUSTOMER_ID_OFFSET + BitUtil.SIZE_OF_LONG;
+    public static final int BID_MESSAGE_LENGTH = PRICE_OFFSET + BitUtil.SIZE_OF_LONG;
+    public static final int BID_SUCCEEDED_OFFSET = BID_MESSAGE_LENGTH;
+    public static final int EGRESS_MESSAGE_LENGTH = BID_SUCCEEDED_OFFSET + BitUtil.SIZE_OF_BYTE;
 
-    private static final int SNAPSHOT_CUSTOMER_ID_OFFSET = 0;
-    private static final int SNAPSHOT_PRICE_OFFSET = SNAPSHOT_CUSTOMER_ID_OFFSET + BitUtil.SIZE_OF_LONG;
-    private static final int SNAPSHOT_MESSAGE_LENGTH = SNAPSHOT_PRICE_OFFSET + BitUtil.SIZE_OF_LONG;
+    public static final int SNAPSHOT_CUSTOMER_ID_OFFSET = 0;
+    public static final int SNAPSHOT_PRICE_OFFSET = SNAPSHOT_CUSTOMER_ID_OFFSET + BitUtil.SIZE_OF_LONG;
+    public static final int SNAPSHOT_MESSAGE_LENGTH = SNAPSHOT_PRICE_OFFSET + BitUtil.SIZE_OF_LONG;
 
     private final MutableDirectBuffer egressMessageBuffer = new ExpandableDirectByteBuffer(4);
     private final MutableDirectBuffer snapshotMessageBuffer = new ExpandableDirectByteBuffer(8);
@@ -136,12 +137,12 @@ public class BasicAuctionClusteredService implements ClusteredService
 
     public void onSessionOpen(final ClientSession session, final long timestamp)
     {
-
+        System.out.println("onSessionOpen(" + session + ")");
     }
 
     public void onSessionClose(final ClientSession session, final long timestamp, final CloseReason closeReason)
     {
-
+        System.out.println("onSessionClose(" + session + ")");
     }
 
     public void onTimerEvent(final long correlationId, final long timestamp)
@@ -162,6 +163,8 @@ public class BasicAuctionClusteredService implements ClusteredService
 
         public boolean attemptBid(final long price, final long customerId)
         {
+            System.out.println("attemptBid(this=" + this + ", price=" + price + ",customerId=" + customerId + ")");
+
             if (price <= bestPrice)
             {
                 return false;

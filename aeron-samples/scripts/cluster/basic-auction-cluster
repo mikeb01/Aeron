@@ -17,6 +17,8 @@
 
 VERSION=`cat ../../../version.txt`
 
+mkdir -p logs
+
 # tag::start_jvm[]
 function startNode() {
     ${JAVA_HOME}/bin/java \
@@ -30,11 +32,13 @@ function startNode() {
         -XX:+UseParallelOldGC \
         -Daeron.event.cluster.log=all \
         ${JVM_OPTS} \
-        io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode $1 &
+        io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode $1 > logs/cluster-$1.log &
 }
 
 startNode 0
 startNode 1
 startNode 2
 # end::start_jvm[]
+
+tail -F logs/cluster-*.log
 
