@@ -590,6 +590,39 @@ NOTE: This example is using UDP unicast for the ingress and egress channels.  It
 but you will need to be in environment where that is well supported.  In cloud deployments UDP multicast is not
 supported or in very early stages, so unicast is currently recommended in those environments.
 
+=== Publishing to the Cluster
+
+Next we are going push messages into the cluster itself.  So that the client is able to fail over to different nodes as
+nodes come and go in the cluster the Aeron publications are wrapped in a class called `AeronCluster`.  This is the
+second of the two items that are connected at start up.  This class provides an API very similar to the Publication API.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusterClient.java[tag=publish]
+----
+
+<1> In much that same way that we would send messages to a publication we put the data that we want to send into an
+Agrona `DirectBuffer`.  The `AeronCluster` contains offer methods that behave in the same way as the `Publication` offer
+methods.
+
+<2> Publish the data in the same way we would using a `Publication`.  We must check the return value to ensure that the
+message has been sent.
+
+<3> If we fail to send and need to run a busy wait loop, we should utilise an `IdleStrategy` to ensure that we don't
+inappropriately overuse the CPU.  With cluster clients we should also be continually polling the egress topic to pick up
+any messages that have been sent back from the cluster, including errors or session status messages.
+
+=== Receiving Responses
+
+As was mentioned previously our client must have a class that implements the `EgressListener` interface to receive
+messages that come back from the cluster.  The responses can application messages, session events (e.g. error messages),
+or notifications of a new leader.  In this tutorial there is not a lot to do, we simple print out the responses that we
+receive.
+
+[source, Java, indent=0, options="nowrap"]
+----
+include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusterClient.java[tag=response]
+----
 
 
 == Timers

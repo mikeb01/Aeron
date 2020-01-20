@@ -45,6 +45,7 @@ public class BasicAuctionClusterClient implements EgressListener
         this.customerId = customerId;
     }
 
+    // tag::response[]
     public void onMessage(
         final long clusterSessionId,
         final long timestamp,
@@ -84,6 +85,7 @@ public class BasicAuctionClusterClient implements EgressListener
     {
         printOutput("New Leader(" + clusterSessionId + "," + leadershipTermId + "," + leaderMemberId + ")");
     }
+    // end::response[]
 
     private void bidInAuction(final AeronCluster aeronCluster)
     {
@@ -111,19 +113,21 @@ public class BasicAuctionClusterClient implements EgressListener
         }
     }
 
+    // tag::publish[]
     private void sendBid(final AeronCluster aeronCluster, final long price)
     {
-        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId++);
+        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId++);          // <1>
         actionBidBuffer.putLong(CUSTOMER_ID_OFFSET, customerId);
         actionBidBuffer.putLong(PRICE_OFFSET, price);
 
-        while (aeronCluster.offer(actionBidBuffer, 0, BID_MESSAGE_LENGTH) < 0)
+        while (aeronCluster.offer(actionBidBuffer, 0, BID_MESSAGE_LENGTH) < 0)    // <2>
         {
-            idleStrategy.idle(aeronCluster.pollEgress());
+            idleStrategy.idle(aeronCluster.pollEgress());                         // <3>
         }
 
         printOutput("Sent (" + (correlationId - 1) + "," + customerId + "," + price + ")");
     }
+    // end::publish[]
 
     public void startConsoleReader(final ThreadFactory threadFactory)
     {
