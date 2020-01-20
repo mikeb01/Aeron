@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 ##
 ## Copyright 2014-2020 Real Logic Limited.
 ##
@@ -15,23 +16,17 @@
 ## limitations under the License.
 ##
 
-source ./script-common
+if [[ ! -v JAVA_HOME ]]; then
+  echo "Please set the JAVA_HOME environment variable"
+  exit 1
+fi
 
-# tag::start_jvm[]
-function startNode() {
-    ${JAVA_HOME}/bin/java \
-        -cp ../../../aeron-all/build/libs/aeron-all-${VERSION}.jar \
-        -XX:BiasedLockingStartupDelay=0 \
-        -XX:+UnlockExperimentalVMOptions \
-        -XX:+TrustFinalNonStaticFields \
-        -XX:+UnlockDiagnosticVMOptions \
-        -XX:GuaranteedSafepointInterval=300000 \
-        -XX:+UseParallelOldGC \
-        -Daeron.tutorial.cluster.customerId="$1" \
-        ${JVM_OPTS} ${ADD_OPENS} \
-        io.aeron.samples.tutorial.cluster.BasicAuctionClusterClient
-}
+VERSION=`cat ../../../version.txt`
 
-startNode "$1"
-# end::start_jvm[]
+JDK_VERSION=$(${JAVA_HOME}/bin/java -version 2>&1 | awk -F '"' '/version/ {print $2}')
 
+if [[ ${JDK_VERSION} == '1.8.'* ]]; then
+  ADD_OPENS=""
+else
+  ADD_OPENS="--add-opens java.base/sun.nio.ch=ALL-UNNAMED"
+fi

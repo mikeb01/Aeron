@@ -1,6 +1,5 @@
 package io.aeron.samples.tutorial.cluster;
 
-import io.aeron.CommonContext;
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.EgressListener;
 import io.aeron.cluster.codecs.EventCode;
@@ -59,7 +58,7 @@ public class BasicAuctionClusterClient implements EgressListener
         final long currentPrice = buffer.getLong(offset + PRICE_OFFSET);
         final boolean bidSucceed = 0 != buffer.getByte(offset + BID_SUCCEEDED_OFFSET);
 
-        System.out.println(
+        printOutput(
             "SessionMessage(" + clusterSessionId + "," + correlationId + "," +
             customerId + "," + currentPrice + "," + bidSucceed + ")");
     }
@@ -72,7 +71,7 @@ public class BasicAuctionClusterClient implements EgressListener
         final EventCode code,
         final String detail)
     {
-        System.out.println(
+        printOutput(
             "SessionEvent(" + correlationId + "," + leadershipTermId + "," +
             leaderMemberId + "," + code + "," + detail + ")");
     }
@@ -83,7 +82,7 @@ public class BasicAuctionClusterClient implements EgressListener
         final int leaderMemberId,
         final String memberEndpoints)
     {
-        System.out.println("New Leader(" + clusterSessionId + "," + leadershipTermId + "," + leaderMemberId + ")");
+        printOutput("New Leader(" + clusterSessionId + "," + leadershipTermId + "," + leaderMemberId + ")");
     }
 
     private void bidInAuction(final AeronCluster aeronCluster)
@@ -123,7 +122,7 @@ public class BasicAuctionClusterClient implements EgressListener
             idleStrategy.idle(aeronCluster.pollEgress());
         }
 
-        System.out.println("Sent (" + (correlationId - 1) + "," + customerId + "," + price + ")");
+        printOutput("Sent (" + (correlationId - 1) + "," + customerId + "," + price + ")");
     }
 
     public void startConsoleReader(final ThreadFactory threadFactory)
@@ -135,6 +134,8 @@ public class BasicAuctionClusterClient implements EgressListener
             final BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.US_ASCII));
             try
             {
+                printOutput("");
+
                 while (!Thread.currentThread().isInterrupted())
                 {
                     final String line;
@@ -151,7 +152,7 @@ public class BasicAuctionClusterClient implements EgressListener
                     }
                     catch (final NumberFormatException e)
                     {
-                        System.out.println("Invalid number: " + line);
+                        printOutput("Invalid number: " + line);
                     }
                 }
             }
@@ -179,15 +180,15 @@ public class BasicAuctionClusterClient implements EgressListener
         return sb.toString();
     }
 
+    private void printOutput(final String message)
+    {
+        System.out.println(message);
+        System.out.print("$ ");
+    }
+
     public static void main(final String[] args)
     {
-        if (args.length != 1)
-        {
-            System.err.println("Usage java " + BasicAuctionClusterClient.class.getName() + " <customer id>");
-            System.exit(1);
-        }
-
-        final int customerId = Integer.parseInt(args[0]);
+        final int customerId = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.customerId")); // <1>
 
         final String clusterMembers = clientFacingMembers(Arrays.asList("localhost", "localhost", "localhost"));
         final BasicAuctionClusterClient client = new BasicAuctionClusterClient(customerId);

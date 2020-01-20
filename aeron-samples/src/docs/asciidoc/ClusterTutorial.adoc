@@ -583,7 +583,14 @@ that was on the passive side of a trade.
 template style approach that was used when setting up the Consensus Module.  We just identify that access to the cluster
 is via UDP.
 
-<5> Identify the actual static endpoints for the cluster.  Will be merged into the configuration specified in <4>.
+<5> Identify the actual static endpoints for the cluster.  Will be merged into the configuration specified for the
+ingress channel.
+
+NOTE: This example is using UDP unicast for the ingress and egress channels.  It is possible to use multicast as well,
+but you will need to be in environment where that is well supported.  In cloud deployments UDP multicast is not
+supported or in very early stages, so unicast is currently recommended in those environments.
+
+
 
 == Timers
 

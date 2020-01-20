@@ -15,7 +15,7 @@
 ## limitations under the License.
 ##
 
-VERSION=`cat ../../../version.txt`
+source ./script-common
 
 mkdir -p logs
 
@@ -31,8 +31,9 @@ function startNode() {
         -XX:GuaranteedSafepointInterval=300000 \
         -XX:+UseParallelOldGC \
         -Daeron.event.cluster.log=all \
-        ${JVM_OPTS} \
-        io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode $1 > logs/cluster-$1.log &
+        -Daeron.tutorial.cluster.nodeId=$1 \
+        ${JVM_OPTS} ${ADD_OPENS} \
+        io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode > logs/cluster-$1.log &
 }
 
 startNode 0

@@ -92,21 +92,15 @@ public class BasicAuctionClusteredServiceNode
     // tag::main[]
     public static void main(final String[] args)
     {
-        if (args.length != 1)
-        {
-            System.err.println("Usage java " + BasicAuctionClusteredServiceNode.class.getName() + " <node id>");
-            System.exit(1);
-        }
+        final int nodeId = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.nodeId")); // <1>
 
-        final int nodeId = Integer.parseInt(args[0]);                                          // <1>
-
-        final List<String> hostnames = Arrays.asList("localhost", "localhost", "localhost");   // <2>
+        final List<String> hostnames = Arrays.asList("localhost", "localhost", "localhost");      // <2>
         final String hostname = hostnames.get(nodeId);
 
-        final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId;       // <3>
+        final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId;          // <3>
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId + "-driver";
 
-        final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                     // <4>
+        final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                        // <4>
         // end::main[]
 
         // tag::media_driver[]
