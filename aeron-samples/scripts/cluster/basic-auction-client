@@ -28,10 +28,21 @@ function startNode() {
         -XX:GuaranteedSafepointInterval=300000 \
         -XX:+UseParallelOldGC \
         -Daeron.tutorial.cluster.customerId="$1" \
+        -Daeron.tutorial.cluster.numOfBids="$2" \
+        -Daeron.tutorial.cluster.bidIntervalMs="$3" \
         ${JVM_OPTS} ${ADD_OPENS} \
         io.aeron.samples.tutorial.cluster.BasicAuctionClusterClient
 }
 
-startNode "$1"
+if [[ $# -lt 1 ]]; then
+  echo "Usage: ./basic-action-client <customer id> [number of bids (default 10)] [bid interval ms (default 1000)]"
+  exit 1
+fi
+
+CUSTOMER_ID=${1}
+NUM_OF_BIDS=${2:-10}
+BID_INTERVAL_MS=${3:-1000}
+
+startNode ${CUSTOMER_ID} ${NUM_OF_BIDS} ${BID_INTERVAL_MS}
 # end::start_jvm[]
 

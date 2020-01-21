@@ -624,6 +624,254 @@ receive.
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusterClient.java[tag=response]
 ----
 
+=== Using the Cluster
+
+Now that we have all of the pieces in place we start to run the cluster and client together and see how the cluster
+behaves.  You will need at least three terminal windows as we will leave the one that we use to start the cluster open
+showing logging information for the cluster.
+
+Firstly start the cluster up.
+
+----
+cd <AERON_HOME>/aeron-samples/scripts/cluster
+./basic-auction-cluster
+----
+
+And wait until you see a message that indicates one of the nodes is now the leader
+
+----
+[57240.190127954] CLUSTER: ELECTION_STATE_CHANGE [29/29]: memberId=1, LEADER_READY -> CLOSE
+----
+
+Now in a second terminal window run a client that will place some bids into our cluster hosted auction.  The `10`
+parameter is the customer id to use for the client, change this number if you want to run multiple clients.
+
+----
+cd <AERON_HOME>/aeron-samples/scripts/cluster
+./basic-auction-client 10
+----
+
+We should see some output similar to the following:
+
+----
+Sent (7079011707660026522,132,107)
+SessionMessage(11,7079011707660026522,155,12422,false)
+Sent (7079011707660026523,132,12429)
+SessionMessage(11,7079011707660026523,132,12429,true)
+Sent (7079011707660026524,132,12429)
+SessionMessage(11,7079011707660026524,132,12429,false)
+Sent (7079011707660026525,132,12435)
+SessionMessage(11,7079011707660026525,132,12435,true)
+Sent (7079011707660026526,132,12439)
+SessionMessage(11,7079011707660026526,132,12439,true)
+Sent (7079011707660026527,132,12446)
+SessionMessage(11,7079011707660026527,132,12446,true)
+Sent (7079011707660026528,132,12449)
+SessionMessage(11,7079011707660026528,132,12449,true)
+Sent (7079011707660026529,132,12458)
+SessionMessage(11,7079011707660026529,132,12458,true)
+Sent (7079011707660026530,132,12462)
+SessionMessage(11,7079011707660026530,132,12462,true)
+Sent (7079011707660026531,132,12463)
+SessionMessage(11,7079011707660026531,132,12463,true)
+----
+
+=== Failed Nodes and Leader Election
+
+Now that the cluster is up and running and we are able to send and receive messages, we can look at some of the
+additional tools that are available for Cluster and experiment with some of the failover functionality.
+
+First thing that we are interested in is which node of the three is the leader, with this information we can try to
+shutdown the client and see if our client is able to recover.
+
+[subs = "attributes+"]
+----
+java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar /dev/shm/aeron-${USER}-0/consensus-module list-members
+----
+
+This will show a list of all of the members in the cluster, similar to the following:
+
+----
+currentTimeNs=1579564309666000000, leaderMemberId=0, memberId=0, activeMembers=[ClusterMember{isBallotSent=false,
+isLeader=false, hasRequestedJoin=false, id=0, leadershipTermId=5, logPosition=11872, candidateTermId=-1,
+catchupReplaySessionId=-1, correlationId=-1, removalPosition=-1, timeOfLastAppendPositionNs=1579564309666000000,
+clientFacingEndpoint='localhost:9003', memberFacingEndpoint='localhost:9004', logEndpoint='localhost:9005',
+transferEndpoint='localhost:9006', archiveEndpoint='localhost:9001',
+endpointsDetail='localhost:9003,localhost:9004,localhost:9005,localhost:9006,localhost:9001', publication=null,
+vote=null}, ClusterMember{isBallotSent=false, isLeader=false, hasRequestedJoin=false, id=1, leadershipTermId=5,
+logPosition=11872, candidateTermId=-1, catchupReplaySessionId=-1, correlationId=-1, removalPosition=-1,
+timeOfLastAppendPositionNs=1579564309495000000, clientFacingEndpoint='localhost:9103',
+memberFacingEndpoint='localhost:9104', logEndpoint='localhost:9105', transferEndpoint='localhost:9106',
+archiveEndpoint='localhost:9101',
+endpointsDetail='localhost:9103,localhost:9104,localhost:9105,localhost:9106,localhost:9101', publication=null,
+vote=null}, ClusterMember{isBallotSent=false, isLeader=false, hasRequestedJoin=false, id=2, leadershipTermId=5,
+logPosition=11872, candidateTermId=-1, catchupReplaySessionId=-1, correlationId=-1, removalPosition=-1,
+timeOfLastAppendPositionNs=1579564309552000000, clientFacingEndpoint='localhost:9203',
+memberFacingEndpoint='localhost:9204', logEndpoint='localhost:9205', transferEndpoint='localhost:9206',
+archiveEndpoint='localhost:9201',
+endpointsDetail='localhost:9203,localhost:9204,localhost:9205,localhost:9206,localhost:9201', publication=null,
+vote=null}], passiveMembers=[]
+----
+
+The part we are interested in is the leaderMemberId, this allows us to identify the leader in order to shut it down.  We
+can discover the pid for that member using the following command:
+
+[subs = "attributes+"]
+----
+java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar io.aeron.cluster.ClusterTool \
+  /dev/shm/aeron-${USER}-<leaderMemberId>/consensus-module pid
+----
+
+Note the second argument to the `ClusterTool` is the directory where the Consensus Module's data is stored and we have
+substituted the leaderMemberId to locate the correct directory for the leader.
+
+This will print out a simple number which is the pid of the leader process.
+
+----
+15060
+----
+
+Next start the client again, but this time we will let it run a bit longer and attempt to trigger a leader election
+within the cluster while it is running.
+
+----
+cd <AERON_HOME>/aeron-samples/scripts/cluster
+./basic-auction-client 10 1000 3000
+----
+
+Once the client is running, switch to a different terminal and kill the leader process using the pid from the earlier
+step.
+
+----
+kill <pid>
+----
+
+The system will stall for a short while until the followers timeout the leader an decide to elect a new one.  The logs
+for the cluster will contain something similar to:
+
+----
+==> logs/cluster-0.log <==
+[0] Exiting
+Consensus Module
+io.aeron.cluster.client.ClusterException: heartbeat timeout from leader
+        at io.aeron.cluster.ConsensusModuleAgent.slowTickWork(ConsensusModuleAgent.java:1884)
+        at io.aeron.cluster.ConsensusModuleAgent.doWork(ConsensusModuleAgent.java:288)
+        at org.agrona.concurrent.AgentRunner.doDutyCycle(AgentRunner.java:283)
+        at org.agrona.concurrent.AgentRunner.run(AgentRunner.java:164)
+        at java.base/java.lang.Thread.run(Thread.java:834)
+Consensus Module
+io.aeron.cluster.client.ClusterException: heartbeat timeout from leader
+        at io.aeron.cluster.ConsensusModuleAgent.slowTickWork(ConsensusModuleAgent.java:1884)
+        at io.aeron.cluster.ConsensusModuleAgent.doWork(ConsensusModuleAgent.java:288)
+        at org.agrona.concurrent.AgentRunner.doDutyCycle(AgentRunner.java:283)
+        at org.agrona.concurrent.AgentRunner.run(AgentRunner.java:164)
+        at java.base/java.lang.Thread.run(Thread.java:834)
+...
+[65188.006731058] CLUSTER: ELECTION_STATE_CHANGE [42/42]: memberId=1, FOLLOWER_BALLOT -> FOLLOWER_REPLAY
+[65188.006791979] CLUSTER: ELECTION_STATE_CHANGE [54/54]: memberId=1, FOLLOWER_REPLAY -> FOLLOWER_CATCHUP_TRANSITION
+[65188.009951316] CLUSTER: ELECTION_STATE_CHANGE [55/55]: memberId=1, FOLLOWER_CATCHUP_TRANSITION -> FOLLOWER_CATCHUP
+[65188.028244817] CLUSTER: ELECTION_STATE_CHANGE [47/47]: memberId=1, FOLLOWER_CATCHUP -> FOLLOWER_TRANSITION
+[65188.028355173] CLUSTER: ELECTION_STATE_CHANGE [45/45]: memberId=1, FOLLOWER_TRANSITION -> FOLLOWER_READY
+[65188.02995347] CLUSTER: ELECTION_STATE_CHANGE [31/31]: memberId=1, FOLLOWER_READY -> CLOSE
+
+==> logs/cluster-2.log <==
+[65188.033401987] CLUSTER: ELECTION_STATE_CHANGE [29/29]: memberId=2, LEADER_READY -> CLOSE
+----
+
+Showing that a new leader has been elected to run the cluster.  At this point the cluster will have no redundency and
+will only have two working nodes.
+
+The client should of automatically resumed sending messages into the cluster and receiving responses.  There may or may
+not be an exception logged by the client depending on timing.
+
+----
+Sent (-7819190107498904370,10,12969) bidsRemaining = 980
+SessionMessage(20,-7819190107498904370,10,12969,true)
+Sent (-7819190107498904369,10,12969) bidsRemaining = 979
+Sent (-7819190107498904368,10,12970) bidsRemaining = 978
+Sent (-7819190107498904367,10,12978) bidsRemaining = 977
+Sent (-7819190107498904366,10,12975) bidsRemaining = 976
+Sent (-7819190107498904365,10,12971) bidsRemaining = 975
+Consensus Module
+io.aeron.cluster.client.ClusterException: heartbeat timeout from leader
+        at io.aeron.cluster.ConsensusModuleAgent.slowTickWork(ConsensusModuleAgent.java:1884)
+        at io.aeron.cluster.ConsensusModuleAgent.doWork(ConsensusModuleAgent.java:288)
+        at org.agrona.concurrent.AgentRunner.doDutyCycle(AgentRunner.java:283)
+        at org.agrona.concurrent.AgentRunner.run(AgentRunner.java:164)
+        at java.lang.Thread.run(Thread.java:748)
+New Leader(20,7,1)
+Sent (-7819190107498904364,10,12977) bidsRemaining = 974
+Sent (-7819190107498904363,10,12974) bidsRemaining = 973
+SessionMessage(20,-7819190107498904364,10,12977,true)
+SessionMessage(20,-7819190107498904363,10,12977,false)
+----
+
+IMPORTANT: If you look carefully at the `correlationId` values you will notice there are no `SessionMessage` log entries
+for a number of the messages that were sent.  This is because when the leader fails some of the messages being sent into
+the cluster can be lost.  For this reason it is important the client needs to track responses to it's messages and
+provide timeouts to the caller if required.
+
+We can restore the failed node back into service:
+
+----
+cd <AERON_HOME>/aeron-samples/scripts/cluster
+./basic-auction-cluster <leaderMemberId>
+----
+
+Where the leaderMemberId is id of the member that was killed (not the new leader of the cluster).  The cluster logs will
+show the member rejoining the cluster:
+
+----
+[0] Started Cluster Node on localhost...
+[66250.672741109] CLUSTER: STATE_CHANGE [22/22]: memberId=0, INIT -> ACTIVE
+[66250.687237677] CLUSTER: ELECTION_STATE_CHANGE [23/23]: memberId=0, INIT -> CANVASS
+[66250.689468615] CLUSTER: NEW_LEADERSHIP_TERM [40/40]: logLeadershipTermId=6, leadershipTermId=6, logPosition=19424, timestamp=1579566538529, leaderMemberId=2, logSessionId=-1889384498
+[66250.689493099] CLUSTER: ELECTION_STATE_CHANGE [34/34]: memberId=0, CANVASS -> FOLLOWER_REPLAY
+onSessionOpen(ClientSession{id=1, responseStreamId=102, responseChannel='aeron:udp?endpoint=localhost:19132', encodedPrincipal=[], clusteredServiceAgent=io.aeron.cluster.service.ClusteredServiceAgent@19a05123, responsePublication=null, isClosing=false})
+attemptBid(this=Auction{bestPrice=0, currentWinningCustomerId=-1}, price=123,customerId=132)
+onSessionClose(ClientSession{id=1, responseStreamId=102, responseChannel='aeron:udp?endpoint=localhost:19132', encodedPrincipal=[], clusteredServiceAgent=io.aeron.cluster.service.ClusteredServiceAgent@19a05123, responsePublication=null, isClosing=false})
+onSessionOpen(ClientSession{id=2, responseStreamId=102, responseChannel='aeron:udp?endpoint=localhost:19132', encodedPrincipal=[], clusteredServiceAgent=io.aeron.cluster.service.ClusteredServiceAgent@19a05123, responsePublication=null, isClosing=false})
+----
+
+You can see that the new node looks like it is re-executing application messages.  That is because it is.  It is
+replaying the log of the messages that have been sent into the cluster up to this point in order to restore its
+in-memory to what it was before the failure.
+
+=== Snapshots
+
+Earlier in the tutorial we looked at how a node can store a snapshot of its current state so that it would not need to
+replay every single application message since the beginning of time.  We can look at the recording log for a node to see
+the logs and the snapshots that are stored for a node in the cluster.  We can also use the tools to trigger a snapshot.
+
+Firstly lets look at the recording log.
+
+----
+java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar \
+  /dev/shm/aeron-${USER}-0/consensus-module list-members
+----
+
+Which should show a recording log with a single entry:
+
+----
+RecordingLog{entries=[Entry{recordingId=0, leadershipTermId=0, termBaseLogPosition=0, logPosition=-1, timestamp=1579569542227, serviceId=-1, type=0, isValid=true, entryIndex=0}], cacheIndex={0=0}}
+----
+
+We can trigger an snapshot on the master.  This is slightly different to using the `ClusterTool` in that the
+`ClusterControl` needs the Aeron directory for the node's media driver.
+
+----
+java -cp ../../../aeron-all/build/libs/aeron-all-1.25.1-SNAPSHOT.jar \
+  -Daeron.dir=/dev/shm/aeron-mike-<leaderMemberId>-driver/ io.aeron.cluster.ClusterControl SNAPSHOT
+----
+
+The recording log will now have additional entries.
+
+----
+RecordingLog{entries=[Entry{recordingId=0, leadershipTermId=0, termBaseLogPosition=0, logPosition=-1, timestamp=1579569542227, serviceId=-1, type=0, isValid=true, entryIndex=0}, Entry{recordingId=1, leadershipTermId=0, termBaseLogPosition=0, logPosition=1376, timestamp=1579570195606, serviceId=0, type=1, isValid=true, entryIndex=1}, Entry{recordingId=2, leadershipTermId=0, termBaseLogPosition=0, logPosition=1376, timestamp=1579570195606, serviceId=-1, type=1, isValid=true, entryIndex=2}], cacheIndex={0=0}}
+----
+
+There are two more entries.  One for the snapshot just taken and a now term entry to indicate the point within the log
+that the service should start recovering from were it to use the new snapshot on restart.
 
 == Timers
 

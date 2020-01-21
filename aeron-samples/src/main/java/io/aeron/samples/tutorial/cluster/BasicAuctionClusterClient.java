@@ -6,22 +6,14 @@ import io.aeron.cluster.codecs.EventCode;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.logbuffer.Header;
-import org.agrona.BitUtil;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.BackoffIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
-import org.agrona.concurrent.UnsafeBuffer;
-import org.agrona.concurrent.ringbuffer.OneToOneRingBuffer;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static io.aeron.samples.tutorial.cluster.BasicAuctionClusteredService.*;
@@ -34,15 +26,18 @@ public class BasicAuctionClusterClient implements EgressListener
 {
     private final MutableDirectBuffer actionBidBuffer = new ExpandableDirectByteBuffer();
     private final IdleStrategy idleStrategy = new BackoffIdleStrategy();
-    private final OneToOneRingBuffer inputRequests = new OneToOneRingBuffer(new UnsafeBuffer(new byte[1024]));
     private final long customerId;
+    private final int numOfBids;
+    private final int bidIntervalMs;
 
     private long correlationId = ThreadLocalRandom.current().nextLong();
-    private Thread consoleThread = null;
+    private long lastBidSeen = 100;
 
-    public BasicAuctionClusterClient(final long customerId)
+    public BasicAuctionClusterClient(final long customerId, final int numOfBids, final int bidIntervalMs)
     {
         this.customerId = customerId;
+        this.numOfBids = numOfBids;
+        this.bidIntervalMs = bidIntervalMs;
     }
 
     // tag::response[]
@@ -58,6 +53,8 @@ public class BasicAuctionClusterClient implements EgressListener
         final long customerId = buffer.getLong(offset + CUSTOMER_ID_OFFSET);
         final long currentPrice = buffer.getLong(offset + PRICE_OFFSET);
         final boolean bidSucceed = 0 != buffer.getByte(offset + BID_SUCCEEDED_OFFSET);
+
+        lastBidSeen = currentPrice;
 
         printOutput(
             "SessionMessage(" + clusterSessionId + "," + correlationId + "," +
@@ -90,33 +87,48 @@ public class BasicAuctionClusterClient implements EgressListener
     private void bidInAuction(final AeronCluster aeronCluster)
     {
         long keepAliveDeadlineMs = 0;
+        long nextBidDeadlineMs = System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000);
+        int bidsLeftToSend = numOfBids;
 
         while (!Thread.currentThread().isInterrupted())
         {
-            int work = inputRequests.read((msgTypeId, buffer, index, length) ->
-            {
-                final long price = buffer.getLong(index);
-                sendBid(aeronCluster, price);
-            });
-
             final long currentTimeMs = System.currentTimeMillis();
 
-            if (keepAliveDeadlineMs <= currentTimeMs)
+            if (nextBidDeadlineMs <= currentTimeMs && bidsLeftToSend > 0)
             {
-                aeronCluster.sendKeepAlive();
-                keepAliveDeadlineMs = currentTimeMs + 1_000;
+                final long price = lastBidSeen + ThreadLocalRandom.current().nextInt(10);
+                final long correlationId = sendBid(aeronCluster, price);
+
+                nextBidDeadlineMs = currentTimeMs + ThreadLocalRandom.current().nextInt(bidIntervalMs);
+                keepAliveDeadlineMs = currentTimeMs + 1_000;       // <1>
+                --bidsLeftToSend;
+
+                printOutput(
+                    "Sent (" + (correlationId) + "," + customerId + "," + price + ") bidsRemaining = " +
+                    bidsLeftToSend);
+            }
+            else if (keepAliveDeadlineMs <= currentTimeMs)         // <2>
+            {
+                if (bidsLeftToSend > 0)
+                {
+                    aeronCluster.sendKeepAlive();
+                    keepAliveDeadlineMs = currentTimeMs + 1_000;   // <3>
+                }
+                else
+                {
+                    break;
+                }
             }
 
-            work += aeronCluster.pollEgress();
-
-            idleStrategy.idle(work);
+            idleStrategy.idle(aeronCluster.pollEgress());
         }
     }
 
     // tag::publish[]
-    private void sendBid(final AeronCluster aeronCluster, final long price)
+    private long sendBid(final AeronCluster aeronCluster, final long price)
     {
-        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId++);          // <1>
+        final long correlationId = this.correlationId++;
+        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId);          // <1>
         actionBidBuffer.putLong(CUSTOMER_ID_OFFSET, customerId);
         actionBidBuffer.putLong(PRICE_OFFSET, price);
 
@@ -125,49 +137,9 @@ public class BasicAuctionClusterClient implements EgressListener
             idleStrategy.idle(aeronCluster.pollEgress());                         // <3>
         }
 
-        printOutput("Sent (" + (correlationId - 1) + "," + customerId + "," + price + ")");
+        return correlationId;
     }
     // end::publish[]
-
-    public void startConsoleReader(final ThreadFactory threadFactory)
-    {
-        consoleThread = threadFactory.newThread(() ->
-        {
-            final MutableDirectBuffer inputRequest = new ExpandableDirectByteBuffer();
-
-            final BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.US_ASCII));
-            try
-            {
-                printOutput("");
-
-                while (!Thread.currentThread().isInterrupted())
-                {
-                    final String line;
-                    if (null == (line = in.readLine()))
-                    {
-                        break;
-                    }
-
-                    try
-                    {
-                        final long price = Long.parseLong(line.trim());
-                        inputRequest.putLong(0, price);
-                        inputRequests.write(1, inputRequest, 0, BitUtil.SIZE_OF_LONG);
-                    }
-                    catch (final NumberFormatException e)
-                    {
-                        printOutput("Invalid number: " + line);
-                    }
-                }
-            }
-            catch (final IOException e)
-            {
-                e.printStackTrace();
-            }
-        });
-
-        consoleThread.start();
-    }
 
     public static String clientFacingMembers(final List<String> hostnames)
     {
@@ -187,22 +159,16 @@ public class BasicAuctionClusterClient implements EgressListener
     private void printOutput(final String message)
     {
         System.out.println(message);
-        System.out.print("$ ");
     }
 
     public static void main(final String[] args)
     {
-        final int customerId = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.customerId")); // <1>
+        final int customerId = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.customerId"));       // <1>
+        final int numOfBids = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.numOfBids"));         // <2>
+        final int bidIntervalMs = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.bidIntervalMs")); // <3>
 
         final String clusterMembers = clientFacingMembers(Arrays.asList("localhost", "localhost", "localhost"));
-        final BasicAuctionClusterClient client = new BasicAuctionClusterClient(customerId);
-
-        client.startConsoleReader(target ->
-        {
-            final Thread thread = new Thread(target);
-            thread.setDaemon(true);
-            return thread;
-        });
+        final BasicAuctionClusterClient client = new BasicAuctionClusterClient(customerId, numOfBids, bidIntervalMs);
 
         // tag::connect[]
         final int egressPort = 19000 + customerId;

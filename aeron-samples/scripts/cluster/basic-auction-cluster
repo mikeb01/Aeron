@@ -36,10 +36,23 @@ function startNode() {
         io.aeron.samples.tutorial.cluster.BasicAuctionClusteredServiceNode > logs/cluster-$1.log &
 }
 
-startNode 0
-startNode 1
-startNode 2
+function startAll() {
+  startNode 0
+  startNode 1
+  startNode 2
+
+  tail -F logs/cluster-*.log
+}
 # end::start_jvm[]
 
-tail -F logs/cluster-*.log
+if [[ $# -lt 1 ]]; then
+  startAll
+elif [[ $1 == 0 ]] || [[ $1 == 1 ]] || [[ $1 == 2 ]]; then
+  echo "starting node $1"
+  startNode $1
+else
+  echo "Usage: ./basic-auction-cluster [1,2,3]"
+  exit 1
+fi
+
 
