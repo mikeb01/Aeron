@@ -25,11 +25,10 @@ This tutorial assumes that the the user already has a basic working knowledge of
 
 == 1. Introduction
 
-Aeron Cluster is feature that builds upon Aeron and Archive to create a distributed system that contains multiple
-redundant instances of the same service whose state is kept synchronized though Aeron Cluster's implementation of the
-https://raft.github.io/[Raft Consensus Algorithm].  The base functionality provided is that given a cluster of nodes
-(`n`), a message in only processed once a majority of nodes (`⌊n/2⌋ + 1`) have received that message.  This provides
-fault tolerance in that a portion of may be unavailable, but the system can safely continue to process messages.
+Aeron Cluster uses an implementation of the https://raft.github.io/[Raft Consensus Algorithm] and an event-sourced model
+for persistence to provide a framework for high-performance fault-tolerant services.  Systems build using Aeron Cluster
+are fully linearizable consistency model and can cope with partial system failure as long as a quorum of `⌊n/2⌋ + 1`
+nodes remain available.
 
 === Raft Basics
 
@@ -37,7 +36,7 @@ It is not the intention of this tutorial to go into a full description of the ht
 Algorithm], however it is difficult explain Aeron Cluster without a few definitions up front.  The key concepts
 are (some are Aeron specific):
 
-- Node, a physical server, container instance, VM or group of processes that represents on logicial server within the
+- Node, a physical server, container instance, VM or group of processes that represents a logical server within a
 cluster.
 - Leader, a node within the cluster responsible for replicating messages to the other nodes and waiting for
 acknowledgements.
@@ -50,7 +49,7 @@ acknowledgements.
 
 === Event Sourcing Basics
 
-Aeron Cluster's fault tolerance models is designed around the concept of event sourcing.  Martin Fowler
+Aeron Cluster's persistence model is designed around the concept of event sourcing.  Martin Fowler
 https://martinfowler.com/eaaDev/EventSourcing.html[succinctly describes] Event Sourcing as:
 
 [quote]
@@ -58,18 +57,18 @@ ____
 Capture all changes to an application state as a sequence of events.
 ____
 
-This means that a service, given a known initial state and a reproducible sequence of events can be restored to a state
-that it held in the past.  This provides a means to restore a system that has stopped (either crashed or manually
-stopped) and create a copies of the state of one service on multiple nodes.
+For a service, given a known initial state and a reproducible sequence of events can be restored to any state that it
+held in the past.  This provides a means to restore a system that has stopped (either crashed or manually stopped) or
+create a copies of that state on other nodes.
 
 However, it is not quite that simple, in addition to storing initial state and all input events, the service must have
 all of its logic implemented deterministically.  Such that all of the output generated for the same set of inputs is the
-same.  Ensure that the application logic is deterministic is outside of the control of Aeron Cluster an is the
+same.  Ensuring that the application logic is deterministic is outside of the control of Aeron Cluster and is the
 responsibility of the developer(s) building the application.
 
 [TIP]
 ====
-Be careful to ensure determinism with clustered services, common pitfalls include:
+Be careful to ensure determinism in event-sourced services, common pitfalls include:
 
 - Timestamps
 - Random Numbers
@@ -94,7 +93,7 @@ worth of messages, in those systems snapshotting every 30 minutes may be more ap
 === Components of Aeron Cluster
 
 One of the key design goals of Aeron is to build a system that is highly composable.  E.g. Aeron Archive which provides
-a means to persist an Aeron stream is used by Aeron Cluster to persist the Raft log and messages a communicated around
+a means to persist an Aeron stream is used by Aeron Cluster to persist the Raft log and messages are communicated around
 the cluster using Aeron's Media Driver.  Therefore Aeron Cluster is an aggregation of a number of existing Aeron
 components and a few new ones.  To successfully run a cluster node it is necessary to have one (or at least one in the
 case of ClusteredServiceContainer) of each of the Aeron components running.  Because all communication between these
@@ -103,57 +102,39 @@ combination.
 
 ==== MediaDriver
 
-The MediaDriver is the means by which data is moved to, from, and around the cluster.  E.g. Aeron's multicast and
-multi-destination-cast functionality is used for offering data into the cluster and ensuring that any active leader
-receives it.  Aeron Cluster reuses the Publication and Subscription functionality already provides to handle all
-distributed and inter-process communications.
+The MediaDriver is the means by which data is moved to, from, and around the cluster.  Aeron Cluster reuses the
+Publication and Subscription functionality already provides to handle all distributed and inter-process communications.
 
 NOTE: Currently  only the Java implementation of the MediaDriver is supported for use in Aeron Cluster.
 
 ==== Archive
 
-Raft is primarily a log replication protocol, so Aeron Cluster uses Aeron's Archive functionality as the means to
-persist its log.
+Raft is primarily a log replication protocol, so Aeron Cluster uses Aeron Archive to persist its log.
 
 ==== ConsensusModule
 
-The Consensus Module is the key component with Aeron Cluster and provides the functionality for ensuring the nodes have
-a consistent copy of the replicated event log.  The Consensus Module will co-ordinate with the Archive to persist
-messages, replicate/ack messages to/from other nodes and deliver messages through to the Clustered Services.
+The Consensus Module is the key component with Aeron Cluster and ensures the nodes have a consistent copy of the
+replicated log.  The Consensus Module will co-ordinate with the Archive to persist messages, replicate/ack messages
+to/from other nodes and deliver messages through to the Clustered Services.
 
 ==== ClusteredServiceContainer
 
 This is the service that is running the developer supplied application logic.  There can be one or more clustered
-services per node.  Aeron Cluster provides a container for the application logic to run within.  There is a
-ClusteredService interface that must be implementation by the application that will supply all of the events from the
-cluster.
+services per node.  Aeron Cluster provides a container for the application logic.  There is a ClusteredService interface
+that must be implementation by the application that receive all of the appropriate event from cluster.
 
 == 2. Getting Started Aeron Cluster
 
-Install JDK 8 or JDK 11.
+Install JDK 8 or JDK 11 and ensure that `$JAVA_HOME` is set correctly and `$JAVA_HOME/bin` is on your `$PATH`.
 
-The simplest way to get started with Aeron is to use the aeron-all jar.  This contains all of the aeron functionality
-including Archive and Cluster as well as including the Agrona jar inside of it.  Aeron has no other dependencies.  List
-most open source proejects you can use a Maven dependency to pull the code in from Maven central.  The current stable
-version is `{aeronVersion}`, however it is recommended that you
-https://search.maven.org/artifact/io.aeron/aeron-all[check] to see if there is a more up to date version available.
-
-[source, XML, subs="attributes+"]
-----
-<dependency>
-    <groupId>io.aeron</groupId>
-    <artifactId>aeron-all</artifactId>
-    <version>{aeronVersion}</version>
-</dependency>
-----
-
-Aeron is also available as individual jars for each part, taking advantage of that packaging will be described in a
-later part of the tutorial.
+The typical way to get started with Aeron in your own application is to use the
+https://search.maven.org/artifact/io.aeron/aeron-all[aeron-all jar].  However for this tutorial we are going to
+recommend that you check out the source code from Github.
 
 === 2.1 Using the Source From this Tutorial
 
-In order to look at the full examples and run the code from this tutorial you will need to checkout the full Aeron
-source code.
+In order to look at the examples and run the code from this tutorial you will need to checkout the full Aeron source
+code.
 
 ----
 git clone https://github.com/real-logic/aeron.git
@@ -173,12 +154,18 @@ And to build the tutorial (if you haven't already)
 ./gradlew asciidoctor
 ----
 
-The code and scripts used in this tutorial are in:
-----
-<AERON_HOME>/aeron-samples/src/main/java/io/aeron/samples/tutorial/cluster
-<AERON_HOME>/aeron-samples/scripts/cluster
-----
+This tutorial will include snippets of code from the working example.  The core scripts and classes for this tutorial
+are:
 
+ * <AERON_HOME>/aeron-samples/src/main/java/io/aeron/samples/tutorial/cluster/
+ ** BasicAuctionClusteredService.java
+ ** BasicAuctionClusteredServiceNode.java
+ ** BasicAuctionClusterClient.java
+ * <AERON_HOME>/aeron-samples/scripts/cluster/
+ ** basic-auction-cluster
+ ** basic-auction-client
+
+You may wish to open these up in your favourite IDE or editor while we proceed with the tutorial.
 
 == 3. Implementing a Clustered Service
 
@@ -188,11 +175,9 @@ customer that bid that price.  To properly demonstrate the state management and 
 important to have some functionality that is stateful, rather than something like an echo service.  For this example so
 that we get a good understanding of some the complexities involved, especially around snapshotting we are going to show
 all of the gory details of how to handle messages, send responses, snapshotting, and loading.  It is unlikely that
-production code would like like this, you would probably want to have a cleaner separation between concerns.  We will
-look at examples of that shape in some of the latter sections of the tutorial.  For now we are going to see how the
-sausages get made.
+production code would like like this, you would probably want to have a cleaner separation between concerns.
 
-First we must define the link between the application logic and the Aeron Cluster.  This is achieved by implementing the
+First we must define the link between the application logic and Aeron Cluster.  This is done implementing the
 `ClusteredService` interface.
 
 [source, Java, indent=0, options="nowrap"]
@@ -207,22 +192,22 @@ occur, the first one that concerns us is the `onStart` callback.  This will occu
 log replay or live from a client.  It is during this phase that we need to load the initial state of the service.  Aeron
 Cluster passes in a `Image` that will contain the most recent snapshot of the service.  The service should take care of
 deserializing the data from the image and initialize the state of the service.  We will come back to the details of how
-the snapshot is loaded.  We should also take a reference to the cluster at this point as we will need it in the future.
+the snapshot is loaded.  We also take a reference to the cluster at this point as we will need it in the future.
 
 [source, Java, indent=0, options="nowrap"]
 ----
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=start]
 ----
 
-<1> The snapshot can be null (normally this occurs the first time that the service is started).
+<1> The snapshot can be null (this occurs the first time that the service is started).
 
 === Handling Messages
 
-The `onSessionMessage` callback is the main entry point for requests coming into the cluster.  The cluster will define a
-single ingress channel and messages published to this channel will come in through this interface.  This method will
-also be called with the messages from the log when it is recovering the system.  One of the other features that Cluster
-provides is a reliable timestamp, as mentioned earlier this is one of the challenges of building event sourced systems.
-Use this value as the timestamp within your application state and it will be consistent under replay.
+The `onSessionMessage` callback is the main entry point for requests coming into the cluster.  Messages reach here by
+being published to the cluster's ingress channel.  This method will also be passed messages from the log when it is
+recovering from the log.  It is from within this method we will want to interact with our application logic.  Cluster
+provides a reliable timestamp to this method.  As mentioned earlier this is one of the challenges of building event
+sourced systems. Use this value as the timestamp within your application state and it will be consistent under replay.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -240,16 +225,16 @@ value in cents).
 <1> Pull the data out of the message.  This is similar to the pattern used in a Aeron Subscription's `onFragment`
 callback when doing a poll.
 
-<2> Execute the business logic, in our this is applying the incoming bid to the auction to see if it is a winner.
+<2> Execute the business logic, in our case this is applying the incoming bid to the auction to see if it is a winner.
 
 <3> The `ClientSession` allows the service to get information about the calling client, but also provide a means to
-return responses back to the client.  However the it will be `null` during recovery, so we need to check for that state
+return responses back to the client.  However it will be `null` during recovery, so we need to check for that state
 and not offer a response in that case.
 
 <4> Serialise response message.
 
-<5> Calling `offer` on the client session will return the response back on the egress channel.  Make sure that the
-return value for `offer` is check as it is a non-blocking call and not guaranteed to succeed.
+<5> Calling `offer` on the client session will send the response on the egress channel.  Make sure that the return value
+for `offer` is check as it is a non-blocking call and not guaranteed to succeed.
 
 <6> When doing any busy loops within the clustered application use `Cluster::idle(int)` within the wait loop to allow
 the service to pause in a friendly manner.  It will take care of handling thread interrupts and ensure the node fails
@@ -257,16 +242,14 @@ correctly.
 
 === Storing State
 
-As was mentioned earlier we need to have a means for our service to regularly take snapshots of its current state in
-order to reduce the mean time to recovery and facilitate release migration.  There is a callback
-`ClusterService::onTakeSnapshot(ExclusivePublication)` that will be called when it is time to snapshot the state of the
-service.
+As was mentioned earlier we need to regularly take snapshots of the service's state in order to reduce the mean time to
+recovery and facilitate release migration.  There is a callback `onTakeSnapshot` that will be called when it is time to
+snapshot the state of the service.
 
 Aeron Cluster provides an `ExclusivePublication` to write a snapshot as the serialised representation of the application
 logic's state.  For real world applications snapshotting can become tricky.  The two big concerns you will have will be
 ensure that snapshots are written in a consistent manner and dealing with fragmentation of the application state across
-messages.  For now, our state is so simple that neither of those will impact use.  However, we will tackle them in a
-latter part of the tutorial.
+messages.  For now, our state is so simple that neither of those will impact us.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -282,10 +265,10 @@ id and bid price.
 === Loading State
 
 As you may have noticed in the `onStart` method there was a call to load the snapshot.  Now that we have seen how the
-snapshot is written, we can look at how it is loaded.  We also will run until the snapshot image is reached the end.
-For a real application, it should also include enough information to determine that it has reached the end of the stored
-data.  Then the end of the end of the application data can be matched against the end of the image to sanity the
-snaphost.
+snapshot is written, we can look at how it is loaded.  The `Image` provided to the `onStart` has a method that will
+indicate if there is no more data available.  However, application code should also encode enough information that the
+end of the stream can be detect from the store messages.  The the two approaches can be used to do sanity checking that
+all of the data is received.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -338,9 +321,8 @@ single process.  We will then start the cluster as three separate processes.
 
 In a production deployment, you will obviously want to run the 3 instances on three separate servers, however for our
 example we just want to run the services on a single machine.  This does make port allocation a little bit tricky as
-each node within the cluster needs to bind to a number of ports, so we need to make sure that each node has a distinct
-set of ports.  We could do this with VMs or containers, but in the interest of simplicity we are going to specify a port
-range for each node.  I.e:
+each node within the cluster needs to bind to a number of ports, so we need to make sure are no clashes.  We could do
+this with VMs or containers, but in the interest of simplicity we are going to specify a port range for each node.  I.e:
 
 - Node 0, ports: 9000-9099
 - Node 1, ports: 9100-9199
@@ -383,7 +365,7 @@ hostnames or ip addresses in this list an run the same example across multiple s
 <3> As well as making sure that we don't have any port collisions we don't want our services sharing directories on the
 file system, so we use the node id to generate a unique file system location for each node.
 
-<4> Create a shutdown barrier that will be used later to cleanly trap and allow the service to exit.
+<4> Create a shutdown barrier that will be used later to cleanly trap exit signals and allow the service to exit.
 
 === Configuration
 
@@ -444,7 +426,7 @@ into a single string of the form.
 Where each of the leading numeric values is a member id for the cluster (as specified in the `clusterMemberId` method).
 The values for each endpoint represent:
 
-* client-facing, where the client will connect to for the ingress channel (if using multi-destination cast).
+* client-facing, where the client will connect to for the ingress channel.
 * member-facing, where other members of the cluster will connect to.
 * log, used to replicate logs to.
 * transfer, used for a stream that members can use to catch up to a leader.
@@ -488,7 +470,7 @@ include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionCluster
 
 === Running the Cluster
 
-Now that the cluster is configured we start running, the code for launching the service is as follows.
+Now that the cluster is configured we can start it running.  The code for launching the service is as follows.
 
 [source, Java, indent=0, options="nowrap"]
 ----
