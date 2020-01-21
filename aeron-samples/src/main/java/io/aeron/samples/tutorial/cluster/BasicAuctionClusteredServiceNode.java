@@ -97,7 +97,7 @@ public class BasicAuctionClusteredServiceNode
         final List<String> hostnames = Arrays.asList("localhost", "localhost", "localhost");      // <2>
         final String hostname = hostnames.get(nodeId);
 
-        final String baseDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId;          // <3>
+        final File baseDir = new File(System.getProperty("user.dir"), "node" + nodeId);           // <3>
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId + "-driver";
 
         final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                        // <4>
@@ -116,7 +116,7 @@ public class BasicAuctionClusteredServiceNode
         // tag::archive[]
         final Archive.Context archiveContext = new Archive.Context()
             .aeronDirectoryName(aeronDirName)
-            .archiveDir(new File(baseDirName, "archive"))
+            .archiveDir(new File(baseDir, "archive"))
             .controlChannel(udpChannel(nodeId, "localhost", ARCHIVE_CONTROL_REQUEST_PORT_OFFSET))
             .localControlChannel("aeron:ipc?term-length=64k")
             .recordingEventsEnabled(false)
@@ -137,7 +137,7 @@ public class BasicAuctionClusteredServiceNode
             .clusterMemberId(nodeId)                                                         // <1>
             .clusterMembers(clusterMembers(hostnames))                                       // <2>
             .aeronDirectoryName(aeronDirName)                                                // <3>
-            .clusterDir(new File(baseDirName, "consensus-module"))                           // <4>
+            .clusterDir(new File(baseDir, "consensus-module"))                               // <4>
             .ingressChannel("aeron:udp?term-length=64k")                                     // <5>
             .logChannel(logControlChannel(nodeId, hostname, LOG_CONTROL_PORT_OFFSET))        // <6>
             .archiveContext(aeronArchiveContext.clone());                                    // <7>
@@ -147,7 +147,7 @@ public class BasicAuctionClusteredServiceNode
         final ClusteredServiceContainer.Context clusteredServiceContext = new ClusteredServiceContainer.Context()
             .aeronDirectoryName(aeronDirName)                         // <1>
             .archiveContext(aeronArchiveContext.clone())              // <2>
-            .clusterDir(new File(baseDirName, "service"))
+            .clusterDir(new File(baseDir, "service"))
             .clusteredService(new BasicAuctionClusteredService())     // <3>
             .errorHandler(errorHandler("Clustered Service"));
         // end::clustered_service[]

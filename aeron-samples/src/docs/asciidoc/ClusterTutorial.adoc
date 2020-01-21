@@ -362,8 +362,10 @@ the service.
 <2> Define a set of hostnames for the cluster.  For now everything is running on localhost, but we could put actual
 hostnames or ip addresses in this list an run the same example across multiple servers.
 
-<3> As well as making sure that we don't have any port collisions we don't want our services sharing directories on the
-file system, so we use the node id to generate a unique file system location for each node.
+<3> For each node we need a location on disk that will hold the persistent data.  This will include the raft log, mark
+files for each service component and the recording log used to track snapshots within the log.  In a production system
+this location is likely to be fairly important as you will want to map this to a fast disk in order to get the best
+performance out the system.
 
 <4> Create a shutdown barrier that will be used later to cleanly trap exit signals and allow the service to exit.
 
@@ -489,8 +491,8 @@ the following:
 // TODO need to add windows command examples.
 
 ----
-cd <AERON_HOME>/aeron-samples/scripts/cluster
-./basic-auction-cluster
+> cd <AERON_HOME>/aeron-samples/scripts/cluster
+> ./basic-auction-cluster
 ----
 
 This will spit out a whole lot of logging but should end with something like:
@@ -508,7 +510,14 @@ We now have our new service running in a cluster.
 
 You can shutdown the nodes using the following:
 ----
-pkill -f BasicAuctionClusteredServiceNode
+> pkill -f BasicAuctionClusteredServiceNode
+----
+
+You should also be able to the stored data for each of the nodes in the working directory.
+
+----
+> ls
+basic-auction-client  basic-auction-cluster  logs  node0  node1  node2  script-common
 ----
 
 Lets look briefly how the script launches the code.
@@ -615,8 +624,8 @@ showing logging information for the cluster.
 Firstly start the cluster up.
 
 ----
-cd <AERON_HOME>/aeron-samples/scripts/cluster
-./basic-auction-cluster
+> cd <AERON_HOME>/aeron-samples/scripts/cluster
+> ./basic-auction-cluster
 ----
 
 And wait until you see a message that indicates one of the nodes is now the leader
@@ -629,8 +638,8 @@ Now in a second terminal window run a client that will place some bids into our 
 parameter is the customer id to use for the client, change this number if you want to run multiple clients.
 
 ----
-cd <AERON_HOME>/aeron-samples/scripts/cluster
-./basic-auction-client 10
+> cd <AERON_HOME>/aeron-samples/scripts/cluster
+> ./basic-auction-client 10
 ----
 
 We should see some output similar to the following:
@@ -668,7 +677,8 @@ shutdown the client and see if our client is able to recover.
 
 [subs = "attributes+"]
 ----
-java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar /dev/shm/aeron-${USER}-0/consensus-module list-members
+> java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar \
+  io.aeron.cluster.ClusterTool node0/consensus-module list-members
 ----
 
 This will show a list of all of the members in the cluster, similar to the following:
@@ -700,32 +710,29 @@ can discover the pid for that member using the following command:
 
 [subs = "attributes+"]
 ----
-java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar io.aeron.cluster.ClusterTool \
-  /dev/shm/aeron-${USER}-<leaderMemberId>/consensus-module pid
+> java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar \
+  io.aeron.cluster.ClusterTool node<leaderMemberId>/consensus-module pid
+15060
 ----
 
 Note the second argument to the `ClusterTool` is the directory where the Consensus Module's data is stored and we have
 substituted the leaderMemberId to locate the correct directory for the leader.
 
-This will print out a simple number which is the pid of the leader process.
-
-----
-15060
-----
+This will have printed out a simple number which is the pid of the leader process.
 
 Next start the client again, but this time we will let it run a bit longer and attempt to trigger a leader election
 within the cluster while it is running.
 
 ----
-cd <AERON_HOME>/aeron-samples/scripts/cluster
-./basic-auction-client 10 1000 3000
+> cd <AERON_HOME>/aeron-samples/scripts/cluster
+> ./basic-auction-client 10 1000 3000
 ----
 
 Once the client is running, switch to a different terminal and kill the leader process using the pid from the earlier
 step.
 
 ----
-kill <pid>
+> kill <pid>
 ----
 
 The system will stall for a short while until the followers timeout the leader an decide to elect a new one.  The logs
@@ -796,8 +803,8 @@ provide timeouts to the caller if required.
 We can restore the failed node back into service:
 
 ----
-cd <AERON_HOME>/aeron-samples/scripts/cluster
-./basic-auction-cluster <leaderMemberId>
+> cd <AERON_HOME>/aeron-samples/scripts/cluster
+> ./basic-auction-cluster <leaderMemberId>
 ----
 
 Where the leaderMemberId is id of the member that was killed (not the new leader of the cluster).  The cluster logs will
@@ -827,9 +834,9 @@ the logs and the snapshots that are stored for a node in the cluster.  We can al
 
 Firstly lets look at the recording log.
 
+[subs="attributes+"]
 ----
-java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar \
-  /dev/shm/aeron-${USER}-0/consensus-module list-members
+> java -cp <AERON_HOME>/build/libs/aeron-all-{aeronVersion}.jar node0/consensus-module list-members
 ----
 
 Which should show a recording log with a single entry:
@@ -842,7 +849,7 @@ We can trigger an snapshot on the master.  This is slightly different to using t
 `ClusterControl` needs the Aeron directory for the node's media driver.
 
 ----
-java -cp ../../../aeron-all/build/libs/aeron-all-1.25.1-SNAPSHOT.jar \
+> java -cp ../../../aeron-all/build/libs/aeron-all-1.25.1-SNAPSHOT.jar \
   -Daeron.dir=/dev/shm/aeron-mike-<leaderMemberId>-driver/ io.aeron.cluster.ClusterControl SNAPSHOT
 ----
 
@@ -855,13 +862,21 @@ RecordingLog{entries=[Entry{recordingId=0, leadershipTermId=0, termBaseLogPositi
 There are two more entries.  One for the snapshot just taken and a now term entry to indicate the point within the log
 that the service should start recovering from were it to use the new snapshot on restart.
 
-== Timers
+== 5 Exercises
 
-== Multiple Services Per Cluster Node
+Here are some exercises that you can try out.
 
-== More Complex State
+1. Have multiple customers competing on the same auction.
+2. Use multicast for the egress channel so that customers can see each others prices and make better bids.
+3. Implement a second message type that will allow customers to query for the current bid price of the auction.
 
-== Dynamically Add/Removing Nodes from a Cluster
+//== Timers
+//
+//== Multiple Services Per Cluster Node
+//
+//== More Complex State
+//
+//== Dynamically Add/Removing Nodes from a Cluster
 
 
 ////
