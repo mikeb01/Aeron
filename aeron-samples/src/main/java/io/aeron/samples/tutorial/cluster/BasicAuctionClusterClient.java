@@ -80,7 +80,8 @@ public class BasicAuctionClusterClient implements EgressListener
         final int leaderMemberId,
         final String memberEndpoints)
     {
-        printOutput("New Leader(" + clusterSessionId + "," + leadershipTermId + "," + leaderMemberId + ")");
+        printOutput(
+            "New Leader(" + clusterSessionId + "," + leadershipTermId + "," + leaderMemberId + ")");
     }
     // end::response[]
 
@@ -128,7 +129,7 @@ public class BasicAuctionClusterClient implements EgressListener
     private long sendBid(final AeronCluster aeronCluster, final long price)
     {
         final long correlationId = this.correlationId++;
-        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId);          // <1>
+        actionBidBuffer.putLong(CORRELATION_ID_OFFSET, correlationId);            // <1>
         actionBidBuffer.putLong(CUSTOMER_ID_OFFSET, customerId);
         actionBidBuffer.putLong(PRICE_OFFSET, price);
 

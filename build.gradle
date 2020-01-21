@@ -838,6 +838,10 @@ project(':aeron-samples') {
         required { isReleasedVersion && gradle.taskGraph.hasTask("uploadArchives") }
         sign configurations.shadow
     }
+
+    asciidoctor {
+        attributes 'aeronVersion': "${aeronVersion}"
+    }
 }
 
 project(':aeron-system-tests') {

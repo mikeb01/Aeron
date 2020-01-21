@@ -1,8 +1,10 @@
+= Aeron Cluster Tutorial
 :sampleBaseDir: ../../..
 :sampleSourceDir: {sampleBaseDir}/src/main/java
-:aeronVersion: 1.25.0
-
-= Aeron Cluster Tutorial
+:aeronVersion: [aeronVersion
+:sectnums:
+:source-highlighter: prettify
+:autofit-option:
 
 ifdef::env-github[]
 
@@ -23,7 +25,7 @@ IMPORTANT: This tutorial is currently a work in progress, information may be mis
 
 This tutorial assumes that the the user already has a basic working knowledge of Aeron Messaging.
 
-== 1. Introduction
+== Introduction
 
 Aeron Cluster is a framework for high-performance in memory fault tolerant services.  It implements the
 https://raft.github.io/[Raft Consensus Algorithm] to provide log replication, to allow multiple nodes to maintain the
@@ -114,7 +116,7 @@ This is the service that is running the developer supplied application logic.  T
 services per node.  Aeron Cluster provides a container for the application logic.  There is a ClusteredService interface
 that must be implementation by the application that receive all of the appropriate events and messages from cluster.
 
-== 2. Getting Started Aeron Cluster
+== Getting Started Aeron Cluster
 
 Install JDK 8 or JDK 11 and ensure that `$JAVA_HOME` is set correctly and `$JAVA_HOME/bin` is on your `$PATH`.
 
@@ -122,7 +124,8 @@ The typical way to get started with Aeron in your own application is to use the
 https://search.maven.org/artifact/io.aeron/aeron-all[aeron-all jar].  However for this tutorial we are going to
 recommend that you check out the source code from Github.
 
-=== 2.1 Using the Source From this Tutorial
+[#usingthesource]
+=== Using the Source From this Tutorial
 
 In order to look at the examples and run the code from this tutorial you will need to checkout the full Aeron source
 code.
@@ -160,16 +163,20 @@ You may wish to open these up in your favourite IDE or editor while we proceed w
 
 == 3. Implementing a Clustered Service
 
-The first step to setting up a cluster is to first implement the application logic.  Initially in this tutorial we are
-going implement a very simple auction service.  It will have one auction and will track a best price and an id for the
-customer that bid that price.  To properly demonstrate the state management and recovery features of cluster it is
-important to have some functionality that is stateful, rather than something like an echo service.  For this example so
-that we get a good understanding of some the complexities involved, especially around snapshotting we are going to show
-all of the gory details of how to handle messages, send responses, snapshotting, and loading.  It is unlikely that
-production code would like like this, you would probably want to have a cleaner separation between concerns.
+The first step to setting up a cluster is to implement the application logic.  For this tutorial we are going implement
+a simple auction service.  It will have one auction and will track a best price and an id for the customer that bid that
+price.  To properly demonstrate the state management and recovery features of cluster it is important to have some
+functionality that is stateful, rather than something that is stateless like an echo service.
 
-First we must define the link between the application logic and Aeron Cluster.  This is done implementing the
-`ClusteredService` interface.
+NOTE: In order to show the various features of Cluster in an understandable way we've kept the various aspects of the
+code (data serialisation, application logic, Cluster integration) very close together.  It is unlikely that you would do
+this in a real world application.  You would probably want to have greater separation of concerns and perhaps use
+libraries to handle functionality like serialisation.
+
+We must define the link between the application logic and Aeron Cluster.  This is done implementing the
+`ClusteredService` interface.  The `ClusterService` interface defines a number of callbacks that inform us of messages
+and lifecycle events as they occur as well as providing some of the hooks that our service can use to interact with the
+cluster (e.g. sending response messages and taking snapshots).
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -178,28 +185,29 @@ include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionCluster
 
 === Start Up
 
-The `ClusterService` interface defines a number of callbacks that inform us of messages and lifecycle events as they
-occur, the first one that concerns us is the `onStart` callback.  This will occur before any input messages, either from
-log replay or live from a client.  It is during this phase that we need to load the initial state of the service.  Aeron
-Cluster passes in a `Image` that will contain the most recent snapshot of the service.  The service should take care of
-deserializing the data from the image and initialize the state of the service.  We will come back to the details of how
-the snapshot is loaded.  We also take a reference to the cluster at this point as we will need it in the future.
+The clustered service container will notify the service that it has started using the `onStart` callback.  This will
+occur before any input messages are received, either from log replay or live from a client.  It is during this phase
+that we need to load the initial state of the service.  Aeron Cluster passes in a `Image` that will contain the most
+recent valid snapshot of the service.  The service should take care of deserializing the data from the image and
+initialize its state.  We will come back to the details of how the snapshot is loaded after we've looked how messages
+are handled and how a snapshot is stored.
 
 [source, Java, indent=0, options="nowrap"]
 ----
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=start]
 ----
 
-<1> The snapshot can be null (this occurs the first time that the service is started).
+<1> Take a reference to the cluster, we will need this in the future.
+
+<2> The snapshot can be null (this occurs the first time that the service is started).
 
 === Handling Messages
 
 The `onSessionMessage` callback is the main entry point for requests coming into the cluster.  Messages reach here by
-being published to the cluster's ingress channel.  This method will also be passed messages from the log when it is
-recovering from the log.  It is from within this method we will want to interact with our application logic.  Cluster
-provides a reliable timestamp to this method.  As mentioned earlier this is one of the challenges of building
-deterministic systems. Use this value as the timestamp within your application state and it will be consistent under
-replay.
+being published to Cluster's ingress channel.  This method will also be passed messages during replay from a log.  It is
+from within this method we will interact with our application logic.  Cluster also provides a reliable timestamp as a
+parameter to this method.  As mentioned earlier this is one of the challenges of building deterministic systems. Use
+this value as the timestamp within your application state and it will be consistent under replay.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -226,7 +234,7 @@ and not offer a response in that case.
 <4> Serialise response message.
 
 <5> Calling `offer` on the client session will send the response on the egress channel.  Make sure that the return value
-for `offer` is check as it is a non-blocking call and not guaranteed to succeed.
+for `offer` is checked as it is a non-blocking call and not guaranteed to succeed.
 
 <6> When doing any busy loops within the clustered application use `Cluster::idle(int)` within the wait loop to allow
 the service to pause in a friendly manner.  It will take care of handling thread interrupts and ensure the node fails
@@ -243,7 +251,7 @@ logic's state.  For real world applications snapshotting can become tricky.  The
 ensure that snapshots are written in a consistent manner and dealing with fragmentation of the application state across
 messages.  For now, our state is so simple that neither of those will impact us.
 
-[source, Java, indent=0, options="nowrap"]
+[source%autofit, Java, indent=0, options="nowrap"]
 ----
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredService.java[tag=takeSnapshot]
 ----
@@ -256,11 +264,11 @@ id and bid price.
 
 === Loading State
 
-As you may have noticed in the `onStart` method there was a call to load the snapshot.  Now that we have seen how the
-snapshot is written, we can look at how it is loaded.  The `Image` provided to the `onStart` has a method that will
-indicate if there is no more data available.  However, application code should also encode enough information that the
-end of the stream can be detect from the store messages.  The the two approaches can be used to do sanity checking that
-all of the data is received.
+Our `onStart` implementation contained a  method to load the snapshot.  Now that we have seen how the snapshot is
+written, we can look at how it is loaded.  The `Image` provided to the `onStart` has a method that will indicate if
+there is no more data available.  However, application code should also encode enough information that the end of the
+stream can be detected from the store messages.  The the two approaches can be used to do sanity checking that all of
+the data is received.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -272,7 +280,7 @@ include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionCluster
 <2> Because our snapshot is stream of messages written to a publication, we use the `Image`'s poll method for extracting
 data from the snapshot.
 
-<3> Our total snapshot length (16 bytes) is generally going to be small than any reasonable MTU we can assume that all
+<3> Our total snapshot length (16 bytes) is going to be smaller than any reasonable MTU therefore we can assume that all
 of the data will come in a single message.
 
 <4> Once all of the data is loaded we can initialise the application logic state from the snapshot.
@@ -283,27 +291,17 @@ of the data will come in a single message.
 the service so the number of fragments can be zero.
 
 <7> It is also worthwhile having some sanity checks, these ensure that the snapshot store/load code and Aeron agree on
-where the end of the input data is.  Here I've used asserts, but other mechanisms, e.g. log message, exceptions, could
-be used to indicate an issue.
+where the end of the input data is.  We've used asserts, but other mechanisms, (e.g. log message, exceptions) could
+also be used to indicate an issue.
 
 === Other events
 
-There a number other events received by the `ClusteredService` interface, but we are going to ignore them for now and
-come back to them later.
-
-=== Summary
-
-As you have seen the with the current example without some clean separation between the application and system the code
-can very quickly get messy.  One the primary causes of this is that we have no clear specification for the messages
-either those sent from the client or the data being stored in the snapshot.  It is highly recommended that you use some
-tool that encapsulates the serialisation of the message data.  Preferably use a tool that allows the message
-specification to be represented as schema such that messages data can be decoded without requiring the application code
-(e.g Simple Binary Encoding). This will allow a clean separation between the various modules of your application and
-between the application and tools used for operation activities like migration, monitoring, and observability.
+There a number other events received by the `ClusteredService` interface, such as timer events, clients connecting and
+disconnecting from the cluster, and leadership and role changes.  We won't look at these in this tutorial.
 
 == Configuring a Cluster
 
-Now we have our application implemented, we can move onto running it in a cluster. Because there are a number of moving
+Now we have our application implemented we can move onto running it in a cluster.  Because there are a number of moving
 parts to setting up a cluster node, one of the trickiest parts of using Aeron Cluster is getting the configuration
 correct.  We are going to start with a static three-node cluster with a simplified configuration where all of the
 components (MediaDriver, Archive, ConsensusModule and ClusteredServiceContainer) for a single node are hosted in a
@@ -311,10 +309,10 @@ single process.  We will then start the cluster as three separate processes.
 
 === Running Multiple Nodes on the Same Host
 
-In a production deployment, you will obviously want to run the 3 instances on three separate servers, however for our
-example we just want to run the services on a single machine.  This does make port allocation a little bit tricky as
-each node within the cluster needs to bind to a number of ports, so we need to make sure are no clashes.  We could do
-this with VMs or containers, but in the interest of simplicity we are going to specify a port range for each node.  I.e:
+In a production deployment, you will likely want to run the 3 instances on three separate servers, however for our
+example we just want to run the services on a single machine.  This does make port allocation a concern as each node
+within the cluster needs to bind to a number of ports, so we need to make sure are no clashes.  We could do this with
+VMs or containers, but in the interest of simplicity we are going to specify a port range for each node.  I.e:
 
 - Node 0, ports: 9000-9099
 - Node 1, ports: 9100-9199
@@ -335,16 +333,14 @@ port has an offset of 1, so for Node 2 it will have port 9201.
 
 To start the cluster node we are going define our own class that has a main method, it will construct all of contexts
 for the necessary components and then start them all.  As indicated above we are going to give each node of the cluster
-a unique id, strictly sequential starting at 0.  We are also going to use this value as the cluster member id.
+a unique id (0, 1, and 2).  We are also going to use this value as the cluster member id.
 
 [source, Java, indent=0, options="nowrap"]
 ----
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=new_service]
-//...
 ----
 [source, Java, indent=0, options="nowrap"]
 ----
-//...
 include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionClusteredServiceNode.java[tag=main]
 ----
 
@@ -359,7 +355,7 @@ files for each service component and the recording log used to track snapshots w
 this location is likely to be fairly important as you will want to map this to a fast disk in order to get the best
 performance out the system.
 
-<4> Create a shutdown barrier that will be used later to cleanly trap exit signals and allow the service to exit.
+<4> Create a shutdown barrier that will be used to trap exit signals and allow the service to exit cleanly.
 
 === Configuration
 
@@ -414,8 +410,8 @@ along with all of the endpoints that they require for the various operations of 
 into a single string of the form.
 +
 ----
-0,client-facing:port,member-facing:port,log:port,transfer:port,archive:port| \
-1,client-facing:port,member-facing:port,log:port,transfer:port,archive:port| ...
+0,client-facing:port,member-facing:port,log:port,transfer:port,archive:port|\
+1,client-facing:port,member-facing:port,log:port,transfer:port,archive:port|...
 ----
 Where each of the leading numeric values is a member id for the cluster (as specified in the `clusterMemberId` method).
 The values for each endpoint represent:
@@ -478,8 +474,9 @@ include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionCluster
 <3> Use the shutdown barrier to keep our system live until it is signalled to shutdown (e.g. using SIG_TERM or SIG_INT
 on Unix).
 
-There is a script provide to launch the cluster.  Assuming that you've followed step 2.1 above you should be able to do
-the following:
+There is a script provide to launch the cluster.  Assuming that you've followed the <<usingthesource>> step above you
+should be able to do the following:
+
 // TODO need to add windows command examples.
 
 ----
@@ -505,7 +502,7 @@ You can shutdown the nodes using the following:
 > pkill -f BasicAuctionClusteredServiceNode
 ----
 
-You should also be able to the stored data for each of the nodes in the working directory.
+You should also be able see the to the stored data for each of the nodes in the working directory.
 
 ----
 > ls
@@ -523,16 +520,16 @@ The `-javaagent:../../../aeron-agent/build/libs/aeron-agent-${VERSION}-all.jar` 
 logging agent into the running code.  Specifying `-Daeron.event.cluster.log=all` tells the agent to log all of the
 events relating to the cluster operation.
 
-== 4. Using a Cluster Client
+== Using a Cluster Client
 
 While we now have our cluster up and running, we can't do anything with it until we have a client that will interact
 with the cluster.
 
 === Connecting to a Cluster
 
-First off we need a way to connect our client to the cluster.  As you may of guess all of the message between the client
-and the cluster happens via Aeron, but we have an additional layer call AeronCluster that handles connections to the
-independent nodes and provides methods for offering messages into the cluster and polling for responses.
+First off we need a way to connect our client to the cluster.  All of the messaging between the client and the cluster
+happens via Aeron, but we have an additional layer called `AeronCluster` that handles connections to the independent
+nodes and provides methods for offering messages into the cluster and polling for responses.
 
 [source, Java, indent=0, options="nowrap"]
 ----
@@ -545,16 +542,17 @@ include::{sampleSourceDir}/io/aeron/samples/tutorial/cluster/BasicAuctionCluster
 
 <1> Launch a media driver that will allow communication with the cluster nodes.  We're using an embedded instance here
 to make it easier to launch multiple drivers on the same machine for use in this tutorial, but it would be perfectly
-viable to launch a single media driver and have multiple clients on the same host sharing the same media driver.
+viable to launch a single media driver and have multiple clients on the same host sharing the same media driver.  We're
+also avoiding using the media drivers that each of the cluster nodes are using.
 
 <2> This is where we bind our client application code to the responses from the cluster.  This requires implementing the
 `EgressListener` interface, which provides callbacks for session messages, session related events (e.g. errors), and
 cluster events (e.g. new elected leaders).
 
 <3> Specify the channel to receive egress responses back from the cluster.  In our case we are using a UDP unicast
-response, which will limit responses to the session that sent them.  We are adjusting the port per client to allow for
-multiple clients on the same machine with multiple media drivers.  If a single media driver was used then this would not
-be necessary.
+response, which will limit responses to the session that sent the ingress message.  We are adjusting the port per client
+to allow for multiple clients on the same machine with multiple media drivers.  If a single media driver was used then
+this would not be necessary.
 
 +
 
@@ -637,26 +635,26 @@ parameter is the customer id to use for the client, change this number if you wa
 We should see some output similar to the following:
 
 ----
-Sent (7079011707660026522,132,107)
-SessionMessage(11,7079011707660026522,155,12422,false)
-Sent (7079011707660026523,132,12429)
-SessionMessage(11,7079011707660026523,132,12429,true)
-Sent (7079011707660026524,132,12429)
-SessionMessage(11,7079011707660026524,132,12429,false)
-Sent (7079011707660026525,132,12435)
-SessionMessage(11,7079011707660026525,132,12435,true)
-Sent (7079011707660026526,132,12439)
-SessionMessage(11,7079011707660026526,132,12439,true)
-Sent (7079011707660026527,132,12446)
-SessionMessage(11,7079011707660026527,132,12446,true)
-Sent (7079011707660026528,132,12449)
-SessionMessage(11,7079011707660026528,132,12449,true)
-Sent (7079011707660026529,132,12458)
-SessionMessage(11,7079011707660026529,132,12458,true)
-Sent (7079011707660026530,132,12462)
-SessionMessage(11,7079011707660026530,132,12462,true)
-Sent (7079011707660026531,132,12463)
-SessionMessage(11,7079011707660026531,132,12463,true)
+Sent (8474093274723075706,10,105) bidsRemaining = 9
+SessionMessage(1,8474093274723075706,10,105,true)
+Sent (8474093274723075707,10,109) bidsRemaining = 8
+SessionMessage(1,8474093274723075707,10,109,true)
+Sent (8474093274723075708,10,110) bidsRemaining = 7
+SessionMessage(1,8474093274723075708,10,110,true)
+Sent (8474093274723075709,10,119) bidsRemaining = 6
+SessionMessage(1,8474093274723075709,10,119,true)
+Sent (8474093274723075710,10,122) bidsRemaining = 5
+SessionMessage(1,8474093274723075710,10,122,true)
+Sent (8474093274723075711,10,127) bidsRemaining = 4
+SessionMessage(1,8474093274723075711,10,127,true)
+Sent (8474093274723075712,10,129) bidsRemaining = 3
+SessionMessage(1,8474093274723075712,10,129,true)
+Sent (8474093274723075713,10,135) bidsRemaining = 2
+SessionMessage(1,8474093274723075713,10,135,true)
+Sent (8474093274723075714,10,136) bidsRemaining = 1
+SessionMessage(1,8474093274723075714,10,136,true)
+Sent (8474093274723075715,10,142) bidsRemaining = 0
+SessionMessage(1,8474093274723075715,10,142,true)
 ----
 
 === Failed Nodes and Leader Election
@@ -854,13 +852,13 @@ RecordingLog{entries=[Entry{recordingId=0, leadershipTermId=0, termBaseLogPositi
 There are two more entries.  One for the snapshot just taken and a now term entry to indicate the point within the log
 that the service should start recovering from were it to use the new snapshot on restart.
 
-== 5 Exercises
+== Exercises
 
 Here are some exercises that you can try out.
 
-1. Have multiple customers competing on the same auction.
-2. Use multicast for the egress channel so that customers can see each others prices and make better bids.
-3. Implement a second message type that will allow customers to query for the current bid price of the auction.
+. Have multiple customers competing on the same auction.
+. Use multicast for the egress channel so that customers can see each others prices and make better bids.
+. Implement a second message type that will allow customers to query for the current bid price of the auction.
 
 //== Timers
 //

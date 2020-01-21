@@ -31,7 +31,7 @@ public class BasicAuctionClusteredService implements ClusteredService
     public static final int SNAPSHOT_MESSAGE_LENGTH = SNAPSHOT_PRICE_OFFSET + BitUtil.SIZE_OF_LONG;
 
     private final MutableDirectBuffer egressMessageBuffer = new ExpandableDirectByteBuffer(4);
-    private final MutableDirectBuffer snapshotMessageBuffer = new ExpandableDirectByteBuffer(8);
+    private final MutableDirectBuffer snapshotBuffer = new ExpandableDirectByteBuffer(8);
 
     // tag::state[]
     private final Auction auction = new Auction();
@@ -41,8 +41,8 @@ public class BasicAuctionClusteredService implements ClusteredService
     // tag::start[]
     public void onStart(final Cluster cluster, final Image snapshotImage)
     {
-        this.cluster = cluster;
-        if (null != snapshotImage)  // <1>
+        this.cluster = cluster;     // <1>
+        if (null != snapshotImage)  // <2>
         {
             loadSnapshot(cluster, snapshotImage);
         }
@@ -82,10 +82,10 @@ public class BasicAuctionClusteredService implements ClusteredService
     // tag::takeSnapshot[]
     public void onTakeSnapshot(final ExclusivePublication snapshotPublication)
     {
-        snapshotMessageBuffer.putLong(CUSTOMER_ID_OFFSET, auction.getCurrentWinningCustomerId()); // <1>
-        snapshotMessageBuffer.putLong(PRICE_OFFSET, auction.getBestPrice());
+        snapshotBuffer.putLong(CUSTOMER_ID_OFFSET, auction.getCurrentWinningCustomerId()); // <1>
+        snapshotBuffer.putLong(PRICE_OFFSET, auction.getBestPrice());
 
-        while (snapshotPublication.offer(snapshotMessageBuffer, 0, SNAPSHOT_MESSAGE_LENGTH) < 0)  // <2>
+        while (snapshotPublication.offer(snapshotBuffer, 0, SNAPSHOT_MESSAGE_LENGTH) < 0)  // <2>
         {
             cluster.idle();
         }
@@ -93,7 +93,6 @@ public class BasicAuctionClusteredService implements ClusteredService
     // end::takeSnapshot[]
 
     // tag::loadSnapshot[]
-    @SuppressWarnings("checkstyle:WhitespaceAfter")
     private void loadSnapshot(final Cluster cluster, final Image snapshotImage)
     {
         final MutableBoolean allDataLoaded = new MutableBoolean(false);

@@ -18,6 +18,8 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.List;
 
+import static java.lang.Integer.parseInt;
+
 // tag::new_service[]
 public class BasicAuctionClusteredServiceNode
 // end::new_service[]
@@ -92,15 +94,15 @@ public class BasicAuctionClusteredServiceNode
     // tag::main[]
     public static void main(final String[] args)
     {
-        final int nodeId = Integer.parseInt(System.getProperty("aeron.tutorial.cluster.nodeId")); // <1>
+        final int nodeId = parseInt(System.getProperty("aeron.tutorial.cluster.nodeId"));    // <1>
 
-        final List<String> hostnames = Arrays.asList("localhost", "localhost", "localhost");      // <2>
+        final List<String> hostnames = Arrays.asList("localhost", "localhost", "localhost"); // <2>
         final String hostname = hostnames.get(nodeId);
 
-        final File baseDir = new File(System.getProperty("user.dir"), "node" + nodeId);           // <3>
+        final File baseDir = new File(System.getProperty("user.dir"), "node" + nodeId);      // <3>
         final String aeronDirName = CommonContext.getAeronDirectoryName() + "-" + nodeId + "-driver";
 
-        final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                        // <4>
+        final ShutdownSignalBarrier barrier = new ShutdownSignalBarrier();                   // <4>
         // end::main[]
 
         // tag::media_driver[]
@@ -144,7 +146,8 @@ public class BasicAuctionClusteredServiceNode
         // end::consensus_module[]
 
         // tag::clustered_service[]
-        final ClusteredServiceContainer.Context clusteredServiceContext = new ClusteredServiceContainer.Context()
+        final ClusteredServiceContainer.Context clusteredServiceContext =
+            new ClusteredServiceContainer.Context()
             .aeronDirectoryName(aeronDirName)                         // <1>
             .archiveContext(aeronArchiveContext.clone())              // <2>
             .clusterDir(new File(baseDir, "service"))
@@ -153,12 +156,14 @@ public class BasicAuctionClusteredServiceNode
         // end::clustered_service[]
 
         // tag::running[]
-        try (ClusteredMediaDriver clusteredMediaDriver =
-            ClusteredMediaDriver.launch(mediaDriverContext, archiveContext, consensusModuleContext);          // <1>
-            ClusteredServiceContainer container = ClusteredServiceContainer.launch(clusteredServiceContext))  // <2>
+        try (
+            ClusteredMediaDriver clusteredMediaDriver = ClusteredMediaDriver.launch(
+                mediaDriverContext, archiveContext, consensusModuleContext);  // <1>
+            ClusteredServiceContainer container = ClusteredServiceContainer.launch(
+                clusteredServiceContext))                                     // <2>
         {
             System.out.println("[" + nodeId + "] Started Cluster Node on " + hostname + "...");
-            barrier.await();                                                                                  // <3>
+            barrier.await();                                                  // <3>
             System.out.println("[" + nodeId + "] Exiting");
         }
         // end::running[]
