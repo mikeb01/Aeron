@@ -343,7 +343,7 @@ public final class ClusterConfig
         return sb.toString();
     }
 
-    static int calculatePort(final int nodeId, final int portBase, final int offset)
+    public static int calculatePort(final int nodeId, final int portBase, final int offset)
     {
         return portBase + (nodeId * PORTS_PER_NODE) + offset;
     }

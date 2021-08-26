@@ -16,10 +16,7 @@
 package io.aeron.archive;
 
 import io.aeron.*;
-import io.aeron.archive.client.AeronArchive;
-import io.aeron.archive.client.ControlEventListener;
-import io.aeron.archive.client.RecordingSignalAdapter;
-import io.aeron.archive.client.RecordingSignalConsumer;
+import io.aeron.archive.client.*;
 import io.aeron.archive.status.RecordingPos;
 import io.aeron.driver.Configuration;
 import io.aeron.driver.MediaDriver;
@@ -150,7 +147,7 @@ public class ExtendRecordingTest
     }
 
     @Test
-    @InterruptAfter(10)
+    @InterruptAfter(10_000)
     public void shouldExtendRecordingAndReplay()
     {
         final long controlSessionId = aeronArchive.controlSessionId();
@@ -200,31 +197,46 @@ public class ExtendRecordingTest
         final RecordingDescriptor recording = collector.descriptors.get(0);
         assertEquals(recordingId, recording.recordingId);
 
-        final String publicationExtendChannel = new ChannelUriStringBuilder()
+        final ChannelUriStringBuilder publicationExtendChannel = new ChannelUriStringBuilder()
             .media("udp")
             .endpoint("localhost:3333")
             .initialPosition(recording.stopPosition, recording.initialTermId, recording.termBufferLength)
             .mtu(recording.mtuLength)
-            .alias(MY_ALIAS)
-            .build();
+            .alias(MY_ALIAS);
+
+        String build1 = publicationExtendChannel.build();
+        String build2 = publicationExtendChannel.alias("my-log2").build();
 
         try (Subscription subscription = Tests.reAddSubscription(aeron, EXTEND_CHANNEL, RECORDED_STREAM_ID);
-            Publication publication = aeron.addExclusivePublication(publicationExtendChannel, RECORDED_STREAM_ID))
+            Publication publication = aeron.addExclusivePublication(build1, RECORDED_STREAM_ID);
+//            Publication publication2 = aeron.addExclusivePublication(build2, RECORDED_STREAM_ID)
+        )
         {
+            Publication recPub = publication;
+
+            Tests.awaitConnected(recPub);
+
             subscriptionIdTwo = aeronArchive.extendRecording(recordingId, EXTEND_CHANNEL, RECORDED_STREAM_ID, LOCAL);
             ArchiveSystemTests.pollForSignal(recordingSignalAdapter);
 
             try
             {
-                offer(publication, messageCount, messageCount);
-
                 final CountersReader counters = aeron.countersReader();
-                final int counterId = RecordingPos.findCounterIdBySession(counters, publication.sessionId());
+                final int counterId = RecordingPos.findCounterIdBySession(counters, recPub.sessionId());
+
+                offer(recPub, messageCount, messageCount);
+
+                ArchiveSystemTests.awaitPosition(counters, counterId, recPub.position());
+                aeronArchive.listRecordings(0, Integer.MAX_VALUE, new PrintingRecordingConsumer(null));
+
+//                offer(recPub, messageCount, messageCount);
 
                 consume(subscription, messageCount, messageCount);
 
-                stopTwo = publication.position();
+                stopTwo = recPub.position();
                 ArchiveSystemTests.awaitPosition(counters, counterId, stopTwo);
+
+                aeronArchive.listRecordings(0, Integer.MAX_VALUE, new PrintingRecordingConsumer(null));
             }
             finally
             {

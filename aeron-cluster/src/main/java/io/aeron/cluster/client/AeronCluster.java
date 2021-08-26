@@ -1010,6 +1010,11 @@ public final class AeronCluster implements AutoCloseable
                 credentialsSupplier = new NullCredentialsSupplier();
             }
 
+            if (null == ingressChannel)
+            {
+                throw new ConfigurationException("ingressChannel must be specified in AeronCluster.Context");
+            }
+
             if (null == egressListener)
             {
                 egressListener =
