@@ -18,6 +18,7 @@ package io.aeron.test;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.platform.commons.util.RuntimeUtils;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,6 +40,13 @@ public class InterruptingTestCallback implements BeforeEachCallback, AfterEachCa
     public void beforeEach(final ExtensionContext context)
     {
         timer = null;
+
+        if (RuntimeUtils.isDebugMode())
+        {
+            System.out.println("Disabled timeout while in debugger");
+            return;
+        }
+
         final InterruptAfter annotation = context.getRequiredTestMethod().getAnnotation(InterruptAfter.class);
 
         if (null != annotation)

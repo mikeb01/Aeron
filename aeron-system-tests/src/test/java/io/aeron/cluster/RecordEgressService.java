@@ -2,6 +2,9 @@ package io.aeron.cluster;
 
 import io.aeron.*;
 import io.aeron.archive.client.AeronArchive;
+import io.aeron.archive.client.ArchiveException;
+import io.aeron.archive.client.RecordingSignalAdapter;
+import io.aeron.archive.codecs.ControlResponseCode;
 import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.cluster.codecs.CloseReason;
 import io.aeron.cluster.service.ClientSession;
@@ -37,12 +40,35 @@ final class RecordEgressService implements ClusteredService
     {
         this.cluster = cluster;
         archive = AeronArchive.connect(cluster.context().archiveContext().clone());
+        final ChannelUriStringBuilder uri = new ChannelUriStringBuilder()
+            .media("udp")
+            .endpoint("endpoint=224.20.30.39:24326")
+            .spiesSimulateConnection(true);
+
         notificationsPub = cluster.aeron().addPublication(NOTIFICATIONS_CHANNEL, NOTIFICATIONS_STREAM_ID);
         logPosition = setupRecording(archive);
     }
 
     private long setupRecording(final AeronArchive archive)
     {
+//        final RecordingSignalAdapter recordingSignalAdapter = new RecordingSignalAdapter(
+//            archive.controlSessionId(),
+//            (controlSessionId, correlationId, relevantId, code, errorMessage) ->
+//            {
+//                if (code == ControlResponseCode.ERROR)
+//                {
+//                    throw new ArchiveException(errorMessage, (int)relevantId, correlationId);
+//                }
+//            },
+//            (controlSessionId, correlationId, recordingId, subscriptionId, position, signal) ->
+//            {
+////                if (signal)
+//            },
+//            archive.context().aeron().addSubscription(
+//                archive.context().controlResponseChannel(), archive.context().controlResponseStreamId()),
+//            archive.controlResponsePoller().subscription(),
+//            10);
+
         final RecordingDescriptorCollector collector = new RecordingDescriptorCollector();
         if (0 == archive.listRecordingsForUri(0, 1, NOTIFICATIONS_CHANNEL, NOTIFICATIONS_STREAM_ID, collector))
         {
@@ -135,12 +161,43 @@ final class RecordEgressService implements ClusteredService
 
     public void onSessionOpen(final ClientSession session, final long timestamp)
     {
-
     }
 
     public void onSessionClose(final ClientSession session, final long timestamp, final CloseReason closeReason)
     {
+    }
 
+    private void sendMessage(final long messageLogPosition, final int msgType, final String data)
+    {
+        if (this.logPosition < messageLogPosition)
+        {
+            notificationMessage.putLong(0, messageLogPosition);
+            notificationMessage.putInt(8, msgType);
+            int length = 12;
+            if (null != data)
+            {
+                length += notificationMessage.putStringAscii(12, data);
+            }
+
+            cluster.idleStrategy().reset();
+            do
+            {
+                final long position = notificationsPub.offer(notificationMessage, 0, length);
+
+                if (0 < position)
+                {
+                    break;
+                }
+
+                if (position != Publication.ADMIN_ACTION && position != Publication.BACK_PRESSURED)
+                {
+                    throw new RuntimeException("Delivery failure");
+                }
+
+                cluster.idleStrategy().idle();
+            }
+            while (true);
+        }
     }
 
     public void onSessionMessage(
@@ -151,38 +208,13 @@ final class RecordEgressService implements ClusteredService
         final int length,
         final Header header)
     {
-        if (logPosition < header.position())
+        sendMessage(header.position(), BEGIN_MSG_TYPE, null);
+        // Some application logic happens...
+        for (int i = 0; i < 5; i++)
         {
-            notificationMessage.putLong(0, header.position());
-            notificationMessage.putInt(8, BEGIN_MSG_TYPE);
-
-            cluster.idleStrategy().reset();
-            while (notificationsPub.offer(notificationMessage, 0, 12) < 0)
-            {
-                cluster.idleStrategy().idle();
-            }
-
-            for (int i = 0; i < 5; i++)
-            {
-                notificationMessage.putInt(8, 0);
-                final int strLength = notificationMessage.putStringAscii(12, "App message: " + i);
-
-                cluster.idleStrategy().reset();
-                while (notificationsPub.offer(notificationMessage, 0, 12 + strLength) < 0)
-                {
-                    cluster.idleStrategy().idle();
-                }
-            }
-
-            notificationMessage.putLong(0, header.position());
-            notificationMessage.putInt(8, RecordEgressTest.END_MARKER);
-
-            cluster.idleStrategy().reset();
-            while (notificationsPub.offer(notificationMessage, 0, 12) < 0)
-            {
-                cluster.idleStrategy().idle();
-            }
+            sendMessage(header.position(), APP_MSG_TYPE, "Some application data: " + i);
         }
+        sendMessage(header.position(), END_MSG_TYPE, null);
     }
 
     public void onTimerEvent(final long correlationId, final long timestamp)

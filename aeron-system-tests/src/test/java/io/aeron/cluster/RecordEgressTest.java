@@ -3,7 +3,10 @@ package io.aeron.cluster;
 import io.aeron.*;
 import io.aeron.archive.Archive;
 import io.aeron.archive.client.AeronArchive;
+import io.aeron.archive.client.ControlResponsePoller;
 import io.aeron.archive.client.PrintingRecordingConsumer;
+import io.aeron.archive.client.RecordingSignalAdapter;
+import io.aeron.archive.codecs.RecordingSignal;
 import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.cluster.codecs.CloseReason;
 import io.aeron.cluster.service.ClientSession;
@@ -12,29 +15,35 @@ import io.aeron.cluster.service.ClusteredService;
 import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.Header;
 import io.aeron.logbuffer.LogBufferDescriptor;
+import io.aeron.test.InterruptAfter;
+import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.Tests;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableArrayBuffer;
 import org.agrona.MutableDirectBuffer;
+import org.agrona.collections.MutableBoolean;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 
+@ExtendWith(InterruptingTestCallback.class)
 public class RecordEgressTest
 {
-
     public static final int END_MARKER = 2;
     public static final int BEGIN_MARKER = 1;
 
     @Test
+    @InterruptAfter(20)
     void name()
     {
-        try (MediaDriver mediaDriver = MediaDriver.launchEmbedded(new MediaDriver.Context().dirDeleteOnStart(true));
+        try (MediaDriver mediaDriver = MediaDriver.launch(new MediaDriver.Context().dirDeleteOnStart(true));
             Archive archive = Archive.launch(new Archive.Context().aeronDirectoryName(mediaDriver.aeronDirectoryName()).deleteArchiveOnStart(true));
             Aeron aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(mediaDriver.aeronDirectoryName()));
             AeronArchive aeronArchive = AeronArchive.connect(new AeronArchive.Context().aeron(aeron).ownsAeronClient(false)))
@@ -71,11 +80,13 @@ public class RecordEgressTest
                     final int messageLength = messageBuffer.putStringAscii(0, message);
                     for (int i = 0; i < 5; i++)
                     {
-                        while (pub.offer(messageBuffer, 0, messageLength, (termBuffer, termOffset, frameLength) -> 0) < 0)
+                        final MutableLong position = new MutableLong(0);
+                        final Supplier<String> errorMsg = () -> "Failed with position=" + position;
+                        while ((position.value = pub.offer(messageBuffer, 0, messageLength, (termBuffer, termOffset, frameLength) -> 0)) < 0)
                         {
-                            Tests.yield();
+                            Tests.yieldingIdle(errorMsg);
+                            sub.poll((buffer, offset, len, header) -> {}, 20);
                         }
-
                     }
 
                     if (Math.abs(pub.initialTermId() - termId) > 2)
@@ -158,7 +169,41 @@ public class RecordEgressTest
 
             System.out.println("Truncate to: " + lastEndPosition);
 
-            aeronArchive.truncateRecording(0, lastEndPosition.get());
+            final String responseEndpoint = aeronArchive.controlResponsePoller().subscription().resolvedEndpoint();
+            final String resolvedControlResponse = new ChannelUriStringBuilder(aeronArchive.context().controlResponseChannel())
+                .endpoint(responseEndpoint)
+                .build();
+
+            try (Subscription controlSubscription = aeron.addSubscription(
+                resolvedControlResponse, aeronArchive.context().controlResponseStreamId()))
+            {
+                final MutableBoolean recordingTruncated = new MutableBoolean(false);
+
+                final RecordingSignalAdapter adapter = new RecordingSignalAdapter(
+                    aeronArchive.controlSessionId(),
+                    (controlSessionId, correlationId, relevantId, code, errorMessage) -> {},
+                    (controlSessionId, correlationId, recordingId, subscriptionId, position1, signal) ->
+                    {
+                        System.out.println("Recording: " + recordingId + ", signal: " + signal);
+                        if (recordingId == descriptor.recordingId && RecordingSignal.DELETE == signal)
+                        {
+                            recordingTruncated.set(true);
+                        }
+                    },
+//                    aeronArchive.controlResponsePoller().subscription(),
+                    controlSubscription,
+                    10);
+
+//                aeronArchive.extendRecording(descriptor.recordingId, channel, streamId, SourceLocation.LOCAL);
+
+                aeronArchive.truncateRecording(0, lastEndPosition.get());
+
+                while (!recordingTruncated.get())
+                {
+                    adapter.poll();
+                    Tests.yield();
+                }
+            }
         }
     }
 

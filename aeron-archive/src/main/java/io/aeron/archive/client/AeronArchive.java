@@ -2325,7 +2325,7 @@ public final class AeronArchive implements AutoCloseable
         /**
          * Default channel for receiving control response messages from an archive.
          */
-        public static final String CONTROL_RESPONSE_CHANNEL_DEFAULT = "aeron:udp?endpoint=localhost:0";
+        public static final String CONTROL_RESPONSE_CHANNEL_DEFAULT = "aeron:udp?endpoint=localhost:0|tag=archive_response";
 
         /**
          * Stream id within a channel for receiving control messages from an archive.
