@@ -494,6 +494,13 @@ public class TestNode implements AutoCloseable
                 throw new IllegalStateException("unexpected message received");
             }
 
+            if (message.equals(ClusterTests.CLOSE_SESSION_MSG))
+            {
+                messageCount.incrementAndGet();
+                session.close();
+                return;
+            }
+
             if (message.equals(ClusterTests.ECHO_IPC_INGRESS_MSG))
             {
                 if (null != session)

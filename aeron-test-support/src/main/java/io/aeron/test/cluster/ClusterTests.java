@@ -41,6 +41,7 @@ public class ClusterTests
     public static final String ECHO_IPC_INGRESS_MSG = "Echo as IPC ingress";
     public static final String UNEXPECTED_MSG =
         "Should never get this message because it is not going to be committed!";
+    public static final String CLOSE_SESSION_MSG = "Close Session";
 
     private static final AtomicReference<Throwable> ERROR = new AtomicReference<>();
     private static final AtomicReference<Throwable> WARNING = new AtomicReference<>();

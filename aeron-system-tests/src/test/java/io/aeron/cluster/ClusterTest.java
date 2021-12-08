@@ -20,14 +20,18 @@ import io.aeron.archive.client.AeronArchive;
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.log.EventLogExtension;
 import io.aeron.test.*;
+import io.aeron.test.cluster.ClusterTests;
 import io.aeron.test.cluster.TestCluster;
 import io.aeron.test.cluster.TestNode;
+import org.agrona.MutableDirectBuffer;
 import org.agrona.collections.Hashing;
 import org.agrona.collections.MutableInteger;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.zip.CRC32;
@@ -1336,6 +1340,39 @@ public class ClusterTest
         cluster.sendMessages(numMessages);
         cluster.awaitResponseMessageCount(numMessages * 3);
         cluster.awaitServicesMessageCount(numMessages * 3);
+    }
+
+    @Test
+    @InterruptAfter(10)
+    void shouldCloseClients()
+    {
+        cluster = aCluster().withStaticNodes(3).start();
+        systemTestWatcher.cluster(cluster);
+
+        final TestNode leader0 = cluster.awaitLeader();
+        cluster.connectClient();
+
+        final int numMessages = 3;
+        cluster.sendMessages(numMessages);
+        cluster.awaitResponseMessageCount(numMessages);
+        cluster.awaitServicesMessageCount(numMessages);
+
+        cluster.shouldErrorOnClientClose(false);
+        final MutableDirectBuffer msg = new UnsafeBuffer(CLOSE_SESSION_MSG.getBytes(StandardCharsets.US_ASCII));
+        cluster.client().offer(msg, 0, msg.capacity());
+
+        cluster.awaitServicesMessageCount(numMessages + 1);
+
+        while (!cluster.client().isClosed())
+        {
+            Tests.sleep(1);
+            cluster.client().pollEgress();
+        }
+
+        cluster.reconnectClient();
+
+        cluster.sendMessages(1);
+        cluster.awaitServicesMessageCount(numMessages + 2);
     }
 
     @Test
