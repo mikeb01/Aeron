@@ -73,6 +73,7 @@ public class StressUtil
     public static ChannelUriStringBuilder unicastReqChannel(final String serverAddress)
     {
         return new ChannelUriStringBuilder().media("udp")
+            .linger(0L)
             .endpoint(serverAddress + ":" + (BASE_PORT + UNICAST_REQ_OFFSET));
     }
 
@@ -85,6 +86,7 @@ public class StressUtil
     public static ChannelUriStringBuilder unicastRspChannel(final String clientAddress)
     {
         return new ChannelUriStringBuilder().media("udp")
+            .linger(0L)
             .endpoint(clientAddress + ":" + (BASE_PORT + UNICAST_RSP_OFFSET));
     }
 
