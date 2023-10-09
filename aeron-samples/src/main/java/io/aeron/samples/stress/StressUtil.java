@@ -22,6 +22,8 @@ import org.agrona.DirectBuffer;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static io.aeron.driver.Configuration.MAX_UDP_PAYLOAD_LENGTH;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
@@ -51,8 +53,32 @@ public class StressUtil
     public static final int SERVER_SEND_COUNT = 1001;
     public static final int CLIENT_RECV_COUNT = 1002;
     public static final int CLIENT_SEND_COUNT = 1003;
-    public static final List<Integer> MTU_LENGTHS = Arrays.asList(
-        1408, 4000, 8192, 1 << 14, 1 << 15, MAX_UDP_PAYLOAD_LENGTH);
+    public static final List<Integer> MTU_LENGTHS;
+
+    static
+    {
+        List<Integer> parsedLengths = Arrays.asList(
+            1408, 4000, 8192, 1 << 14, 1 << 15, MAX_UDP_PAYLOAD_LENGTH);
+        final String mtuLengths;
+
+        if (null != (mtuLengths = System.getProperty("aeron.stress.client.mtu.lengths")))
+        {
+            try
+            {
+                parsedLengths = Pattern.compile(",")
+                    .splitAsStream(mtuLengths)
+                    .map(Integer::parseInt)
+                    .collect(Collectors.toList());
+            }
+            catch (final Exception e)
+            {
+                System.err.println(
+                    "Unable to parse aeron.stress.client.mtu.lengths='" + mtuLengths + "', using default");
+            }
+        }
+
+        MTU_LENGTHS = parsedLengths;
+    }
 
     /**
      * Log a simple message.
