@@ -102,6 +102,11 @@ public class ControlProtocolEvents
 
     public static final int REMOVE_DESTINATION_BY_ID = 0x10;
 
+    /**
+     * Invalidate an image.
+     */
+    public static final int INVALIDATE_IMAGE = 0x11;
+
     // Media Driver to Clients
 
     /**
