@@ -105,7 +105,7 @@ public class ControlProtocolEvents
     /**
      * Invalidate an image.
      */
-    public static final int INVALIDATE_IMAGE = 0x11;
+    public static final int REJECT_IMAGE = 0x11;
 
     // Media Driver to Clients
 
