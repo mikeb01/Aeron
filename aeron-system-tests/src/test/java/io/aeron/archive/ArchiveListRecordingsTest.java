@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2023 Real Logic Limited.
+ * Copyright 2014-2024 Real Logic Limited.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,15 @@
  */
 package io.aeron.archive;
 
-import io.aeron.Aeron;
-import io.aeron.ChannelUri;
-import io.aeron.Subscription;
 import io.aeron.archive.client.AeronArchive;
-import io.aeron.archive.client.ReplayParams;
 import io.aeron.driver.MediaDriver;
+import io.aeron.samples.archive.RecordingDescriptorCollector;
+import io.aeron.test.InterruptAfter;
 import io.aeron.test.SystemTestWatcher;
 import io.aeron.test.TestContexts;
-import io.aeron.test.Tests;
 import io.aeron.test.driver.TestMediaDriver;
 import org.agrona.CloseHelper;
 import org.agrona.SystemUtil;
-import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.YieldingIdleStrategy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,9 +32,10 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.File;
 
-import static io.aeron.CommonContext.IPC_CHANNEL;
+import static io.aeron.archive.ArchiveSystemTests.recordData;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class ArchiveReplayTest
+public class ArchiveListRecordingsTest
 {
     @RegisterExtension
     final SystemTestWatcher systemTestWatcher = new SystemTestWatcher()
@@ -85,32 +82,24 @@ public class ArchiveReplayTest
     }
 
     @Test
-    void shouldNotErrorOnReplayThatHasAlreadyStopped()
+    @InterruptAfter(3)
+    void shouldFilterByChannelUri()
     {
         try (AeronArchive aeronArchive = AeronArchive.connect(TestContexts.ipcAeronArchive()))
         {
-            final ArchiveSystemTests.RecordingResult recordingResult = ArchiveSystemTests.recordData(aeronArchive);
+            final ArchiveSystemTests.RecordingResult result1 = recordData(
+                aeronArchive, 1, "snapshot-id:10;complete=true;");
 
-            final Aeron aeron = aeronArchive.context().aeron();
-            final int replayStreamId = 10001;
+            final RecordingDescriptorCollector collector = new RecordingDescriptorCollector(10);
 
-            final long replaySessionId = aeronArchive.startReplay(
-                recordingResult.recordingId(), IPC_CHANNEL, replayStreamId, new ReplayParams());
+            assertEquals(1, aeronArchive.listRecordingsForUri(
+                0, Integer.MAX_VALUE, "alias=snapshot-id:10;", result1.streamId(), collector.reset()));
 
-            final String replayChannel = ChannelUri.addSessionId(IPC_CHANNEL, (int)replaySessionId);
-            final Subscription replay = aeron.addSubscription(replayChannel, replayStreamId);
+            assertEquals(0, aeronArchive.listRecordingsForUri(
+                0, Integer.MAX_VALUE, "alias=snapshot-id:1;", result1.streamId(), collector.reset()));
 
-            final MutableLong replayPosition = new MutableLong();
-            while (replayPosition.get() < recordingResult.position() / 2)
-            {
-                if (0 == replay.poll((buffer, offset, length, header) -> replayPosition.set(header.position()), 10))
-                {
-                    Tests.yield();
-                }
-            }
-
-            CloseHelper.quietClose(replay);
-            aeronArchive.stopReplay(replaySessionId);
+            assertEquals(1, aeronArchive.listRecordingsForUri(
+                0, Integer.MAX_VALUE, "alias=snapshot-id:1", result1.streamId(), collector.reset()));
         }
     }
 }

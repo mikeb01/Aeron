@@ -16,6 +16,7 @@
 package io.aeron.archive;
 
 import io.aeron.Aeron;
+import io.aeron.ChannelUriStringBuilder;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;
 import io.aeron.Subscription;
@@ -155,6 +156,12 @@ class ArchiveSystemTests
 
     static RecordingResult recordData(final AeronArchive aeronArchive)
     {
+        return recordData(aeronArchive, 1000, null);
+    }
+
+    static RecordingResult recordData(
+        final AeronArchive aeronArchive, final int totalMessageCount, final String alias)
+    {
         final TestRecordingSignalConsumer testRecordingSignalConsumer = new TestRecordingSignalConsumer(
             aeronArchive.controlSessionId());
         aeronArchive.context().recordingSignalConsumer(testRecordingSignalConsumer);
@@ -165,9 +172,21 @@ class ArchiveSystemTests
         long recordingId;
         final long position;
         long halfWayPosition = Aeron.NULL_VALUE;
-        try (Publication publication = aeronArchive.addRecordedPublication("aeron:ipc", 10000))
+
+        final ChannelUriStringBuilder channelUriStringBuilder = new ChannelUriStringBuilder()
+            .media("ipc");
+
+        if (null != alias)
         {
-            int messageCount = 1000;
+            channelUriStringBuilder.alias(alias);
+        }
+
+        final String channel = channelUriStringBuilder.toString();
+        final int streamId = 10000;
+
+        try (Publication publication = aeronArchive.addRecordedPublication(channel, streamId))
+        {
+            int messageCount = totalMessageCount;
             while (messageCount > 0)
             {
                 if (0 < publication.offer(message))
@@ -205,20 +224,10 @@ class ArchiveSystemTests
             Tests.yield();
         }
 
-        return new RecordingResult(position, halfWayPosition, recordingId);
+        return new RecordingResult(position, halfWayPosition, recordingId, streamId);
     }
 
-    static class RecordingResult
+    record RecordingResult(long position, long halfwayPosition, long recordingId, int streamId)
     {
-        public final long position;
-        public final long halfwayPosition;
-        public final long recordingId;
-
-        RecordingResult(final long position, final long halfwayPosition, final long recordingId)
-        {
-            this.position = position;
-            this.halfwayPosition = halfwayPosition;
-            this.recordingId = recordingId;
-        }
     }
 }

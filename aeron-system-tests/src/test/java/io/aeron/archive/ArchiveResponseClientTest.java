@@ -22,6 +22,7 @@ import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ReplayParams;
 import io.aeron.driver.MediaDriver;
 import io.aeron.test.EventLogExtension;
+import io.aeron.test.InterruptAfter;
 import io.aeron.test.InterruptingTestCallback;
 import io.aeron.test.SystemTestWatcher;
 import io.aeron.test.TestContexts;
@@ -90,6 +91,7 @@ public class ArchiveResponseClientTest
     }
 
     @Test
+    @InterruptAfter(10)
     void shouldReplayUsingResponseChannel()
     {
         final AeronArchive.Context aeronArchiveCtx = new AeronArchive.Context()
@@ -100,11 +102,11 @@ public class ArchiveResponseClientTest
             final ArchiveSystemTests.RecordingResult recordingResult = ArchiveSystemTests.recordData(aeronArchive);
 
             final Subscription replay = aeronArchive.replay(
-                recordingResult.recordingId, "aeron:udp?control-mode=response|control=localhost:10002", 10001,
+                recordingResult.recordingId(), "aeron:udp?control-mode=response|control=localhost:10002", 10001,
                 new ReplayParams());
 
             final MutableLong replayPosition = new MutableLong();
-            while (replayPosition.get() < recordingResult.position)
+            while (replayPosition.get() < recordingResult.position())
             {
                 if (0 == replay.poll((buffer, offset, length, header) -> replayPosition.set(header.position()), 10))
                 {
@@ -115,6 +117,7 @@ public class ArchiveResponseClientTest
     }
 
     @Test
+    @InterruptAfter(10)
     void shouldBoundedReplayUsingResponseChannel()
     {
         final AeronArchive.Context aeronArchiveCtx = new AeronArchive.Context()
@@ -124,19 +127,19 @@ public class ArchiveResponseClientTest
         {
             final ArchiveSystemTests.RecordingResult recordingResult = ArchiveSystemTests.recordData(aeronArchive);
             final Counter testBoundedCounter = aeronArchive.context().aeron().addCounter(10001, "test bounded counter");
-            testBoundedCounter.set(recordingResult.halfwayPosition);
+            testBoundedCounter.set(recordingResult.halfwayPosition());
 
             final ReplayParams replayParams = new ReplayParams();
             replayParams.boundingLimitCounterId(testBoundedCounter.id());
 
             final Subscription replay = aeronArchive.replay(
-                recordingResult.recordingId,
+                recordingResult.recordingId(),
                 "aeron:udp?control-mode=response|control=localhost:10002",
                 10001,
                 replayParams);
 
             final MutableLong replayPosition = new MutableLong();
-            while (replayPosition.get() < recordingResult.halfwayPosition)
+            while (replayPosition.get() < recordingResult.halfwayPosition())
             {
                 if (0 == replay.poll((buffer, offset, length, header) -> replayPosition.set(header.position()), 10))
                 {
@@ -147,6 +150,7 @@ public class ArchiveResponseClientTest
     }
 
     @Test
+    @InterruptAfter(10)
     void shouldStartReplayUsingResponseChannel()
     {
         final String responseChannel = "aeron:udp?control-mode=response|control=localhost:10002";
@@ -162,10 +166,10 @@ public class ArchiveResponseClientTest
             final ReplayParams replayParams = new ReplayParams();
             replayParams.subscriptionRegistrationId(replay.registrationId());
 
-            aeronArchive.startReplay(recordingResult.recordingId, responseChannel, replayStreamId, replayParams);
+            aeronArchive.startReplay(recordingResult.recordingId(), responseChannel, replayStreamId, replayParams);
 
             final MutableLong replayPosition = new MutableLong();
-            while (replayPosition.get() < recordingResult.position)
+            while (replayPosition.get() < recordingResult.position())
             {
                 if (0 == replay.poll((buffer, offset, length, header) -> replayPosition.set(header.position()), 10))
                 {
@@ -176,6 +180,7 @@ public class ArchiveResponseClientTest
     }
 
     @Test
+    @InterruptAfter(10)
     void shouldStartBoundedReplayUsingResponseChannel()
     {
         final String responseChannel = "aeron:udp?control-mode=response|control=localhost:10002";
@@ -190,17 +195,17 @@ public class ArchiveResponseClientTest
         {
             final ArchiveSystemTests.RecordingResult recordingResult = ArchiveSystemTests.recordData(aeronArchive);
             final Counter testBoundedCounter = aeronArchive.context().aeron().addCounter(10001, "test bounded counter");
-            testBoundedCounter.set(recordingResult.halfwayPosition);
+            testBoundedCounter.set(recordingResult.halfwayPosition());
 
             final ReplayParams replayParams = new ReplayParams();
             replayParams
                 .boundingLimitCounterId(testBoundedCounter.id())
                 .subscriptionRegistrationId(replay.registrationId());
 
-            aeronArchive.startReplay(recordingResult.recordingId, responseChannel, replayStreamId, replayParams);
+            aeronArchive.startReplay(recordingResult.recordingId(), responseChannel, replayStreamId, replayParams);
 
             final MutableLong replayPosition = new MutableLong();
-            while (replayPosition.get() < recordingResult.halfwayPosition)
+            while (replayPosition.get() < recordingResult.halfwayPosition())
             {
                 if (0 == replay.poll((buffer, offset, length, header) -> replayPosition.set(header.position()), 10))
                 {
@@ -215,6 +220,7 @@ public class ArchiveResponseClientTest
         "aeron:udp?control-mode=response|control=localhost:10002",
         "aeron:udp?endpoint=localhost:10002"
     })
+    @InterruptAfter(10)
     void shouldAsyncConnectUsingResponseChannel(final String responseChannel)
     {
         final AeronArchive.Context aeronArchiveCtx = new AeronArchive.Context()

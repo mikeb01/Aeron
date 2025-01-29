@@ -117,7 +117,7 @@ public class ArchiveResponseClientFailuresTest
 
             final long tokenCorrelationId = aeronArchive.context().aeron().nextCorrelationId();
             aeronArchive.archiveProxy().requestReplayToken(
-                tokenCorrelationId, aeronArchive.controlSessionId(), recordingResult.recordingId);
+                tokenCorrelationId, aeronArchive.controlSessionId(), recordingResult.recordingId());
             while (0 == aeronArchive.controlResponsePoller().poll())
             {
                 Tests.yield();
@@ -135,7 +135,7 @@ public class ArchiveResponseClientFailuresTest
             replayParams.replayToken(replayToken);
 
             assertTrue(aeronArchive.archiveProxy().replay(
-                recordingResult.recordingId,
+                recordingResult.recordingId(),
                 "aeron:udp?control-mode=response|control=localhost:10002",
                 10001,
                 replayParams,
@@ -180,7 +180,7 @@ public class ArchiveResponseClientFailuresTest
             final Aeron aeron = aeronArchive.context().aeron();
             final long tokenCorrelationId = aeron.nextCorrelationId();
             aeronArchive.archiveProxy().requestReplayToken(
-                tokenCorrelationId, aeronArchive.controlSessionId(), recordingResult.recordingId);
+                tokenCorrelationId, aeronArchive.controlSessionId(), recordingResult.recordingId());
             while (0 == aeronArchive.controlResponsePoller().poll())
             {
                 Tests.yield();
@@ -208,7 +208,7 @@ public class ArchiveResponseClientFailuresTest
             replayParams.replayToken(replayToken);
 
             assertTrue(aeronArchive.archiveProxy().replay(
-                recordingResult.recordingId,
+                recordingResult.recordingId(),
                 "aeron:udp?control-mode=response|control=localhost:10002",
                 10001,
                 replayParams,
