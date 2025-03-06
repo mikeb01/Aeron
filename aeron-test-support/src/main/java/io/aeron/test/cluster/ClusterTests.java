@@ -171,6 +171,12 @@ public class ClusterTests
         }
     }
 
+    public static void resetClusterError()
+    {
+        ERROR.set(null);
+        WARNING.set(null);
+    }
+
     private static boolean shouldDownScaleToWarning(final Throwable error)
     {
         int depthLimit = 10;
