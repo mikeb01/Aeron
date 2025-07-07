@@ -506,7 +506,10 @@ int aeron_driver_uri_subscription_params(
     params->is_response =
         (AERON_URI_UDP == uri->type &&
         NULL != uri->params.udp.control_mode &&
-        strcmp(uri->params.udp.control_mode, AERON_UDP_CHANNEL_CONTROL_MODE_RESPONSE_VALUE) == 0);
+        0 == strcmp(AERON_UDP_CHANNEL_CONTROL_MODE_RESPONSE_VALUE, uri->params.udp.control_mode)) ||
+        (AERON_URI_IPC == uri->type &&
+        NULL != uri->params.ipc.control_mode &&
+        0 == strcmp(AERON_UDP_CHANNEL_CONTROL_MODE_RESPONSE_VALUE, uri->params.ipc.control_mode));
 
     if (aeron_uri_get_timeout(
         uri_params,

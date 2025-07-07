@@ -208,6 +208,10 @@ static int aeron_ipc_uri_params_func(void *clientd, const char *key, const char 
 
         params->channel_tag = '\0' == *value ? NULL : value;
     }
+    else if (strcmp(key, AERON_UDP_CHANNEL_CONTROL_MODE_KEY) == 0)
+    {
+        params->control_mode = value;
+    }
     else
     {
         size_t index = params->additional_params.length;

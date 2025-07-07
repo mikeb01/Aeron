@@ -190,7 +190,7 @@ public class ResponseChannelsTest
     @ValueSource(booleans = { true, false })
     void shouldConnectResponsePublicationUsingImageAndIpc(final boolean useExclusive)
     {
-        //TestMediaDriver.notSupportedOnCMediaDriver("not implemented yet");
+        CloseHelper.quietClose(driver2);
 
         try (Aeron server = Aeron.connect(new Aeron.Context().aeronDirectoryName(driver1.aeronDirectoryName()));
             Aeron client = Aeron.connect(new Aeron.Context().aeronDirectoryName(driver1.aeronDirectoryName()));

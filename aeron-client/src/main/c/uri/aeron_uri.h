@@ -106,6 +106,7 @@ typedef struct aeron_ipc_channel_params_stct
 {
     const char *channel_tag;
     const char *entity_tag;
+    const char *control_mode;
     aeron_uri_params_t additional_params;
 }
 aeron_ipc_channel_params_t;

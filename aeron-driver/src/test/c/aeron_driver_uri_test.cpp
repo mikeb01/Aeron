@@ -401,6 +401,14 @@ TEST_F(DriverUriTest, shouldFailWithPublicationWindowMoreThanHalfTermLength)
     EXPECT_THAT(std::string(aeron_errmsg()), ::testing::HasSubstr("pub-wnd=262144 must not exceed half the term-length=65536"));
 }
 
+TEST_F(DriverUriTest, ipcResponseChannels)
+{
+    EXPECT_EQ(0, AERON_URI_PARSE("aeron:ipc?control-mode=response|alias=client1", &m_uri));
+    aeron_driver_uri_subscription_params_t params = {};
+    aeron_driver_uri_subscription_params(&m_uri, &params, &m_conductor);
+    EXPECT_TRUE(params.is_response);
+}
+
 class UriResolverTest : public testing::Test
 {
 public:

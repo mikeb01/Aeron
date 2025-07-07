@@ -1885,6 +1885,40 @@ void aeron_driver_conductor_on_check_managed_resources(
         conductor, conductor->lingering_resources, aeron_linger_resource_entry_t, now_ns, now_ms)
 }
 
+static void aeron_driver_conductor_find_and_update_ipc_response_subscription(
+    const aeron_driver_conductor_t *conductor,
+    int64_t response_correlation_id,
+    int32_t response_pub_session_id)
+{
+    if (AERON_NULL_VALUE != response_correlation_id)
+    {
+        for (size_t i = 0, pub_n = conductor->ipc_publications.length; i < pub_n; i++)
+        {
+            aeron_ipc_publication_t *potential_request_pub = conductor->ipc_publications.array[i].publication;
+            int64_t ipc_registration_id = potential_request_pub->conductor_fields.managed_resource.registration_id;
+
+            if (ipc_registration_id == response_correlation_id)
+            {
+                int64_t request_pub_response_correlation_id = potential_request_pub->conductor_fields.response_correlation_id;
+
+                for (size_t j = 0, sub_n = conductor->ipc_subscriptions.length; j < sub_n; j++)
+                {
+                    aeron_subscription_link_t *potential_response_sub = &conductor->ipc_subscriptions.array[j];
+                    if (request_pub_response_correlation_id == potential_response_sub->registration_id)
+                    {
+                        potential_response_sub->has_session_id = true;
+                        potential_response_sub->session_id = response_pub_session_id;
+
+                        break;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+}
+
 aeron_ipc_publication_t *aeron_driver_conductor_get_or_add_ipc_publication(
     aeron_driver_conductor_t *conductor,
     aeron_client_t *client,
@@ -2042,31 +2076,8 @@ aeron_ipc_publication_t *aeron_driver_conductor_get_or_add_ipc_publication(
                     publication->conductor_fields.managed_resource.time_of_last_state_change_ns =
                         aeron_clock_cached_nano_time(conductor->context->cached_clock);
 
-                    for (size_t i = 0, pub_n = conductor->ipc_publications.length; i < pub_n; i++)
-                    {
-                        aeron_ipc_publication_t *candidate_pub = conductor->ipc_publications.array[i].publication;
-                        int64_t ipc_registration_id = candidate_pub->conductor_fields.managed_resource.registration_id;
-
-                        if (ipc_registration_id == publication->conductor_fields.response_correlation_id)
-                        {
-                            int64_t candidate_response_correlation_id =
-                                candidate_pub->conductor_fields.response_correlation_id;
-
-                            for (size_t j = 0, sub_n = conductor->ipc_subscriptions.length; j < sub_n; j++)
-                            {
-                                aeron_subscription_link_t *candidate_link = &conductor->ipc_subscriptions.array[j];
-                                if (candidate_response_correlation_id == candidate_link->registration_id)
-                                {
-                                    candidate_link->has_session_id = true;
-                                    candidate_link->session_id = publication->session_id;
-
-                                    break;
-                                }
-                            }
-
-                            break;
-                        }
-                    }
+                    aeron_driver_conductor_find_and_update_ipc_response_subscription(
+                        conductor, publication->conductor_fields.response_correlation_id, publication->session_id);
                 }
             }
         }
