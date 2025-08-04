@@ -262,6 +262,7 @@ subprojects {
             'net.bytebuddy.experimental': 'true',
             'io.aeron.shadow.net.bytebuddy.experimental': 'true',
             'java.net.preferIPv4Stack': 'true',
+            'aeron.fallback.logger': 'no_op',
             'aeron.test.system.aeronmd.path': System.getProperty('aeron.test.system.aeronmd.path'),
             'aeron.test.system.binding.remote.host': System.getProperty('aeron.test.system.binding.remote.host'),
             'aeron.test.system.binding.local.host': System.getProperty('aeron.test.system.binding.local.host'),
@@ -292,7 +293,6 @@ subprojects {
         systemProperty 'aeron.event.log', 'admin'
         systemProperty 'aeron.debug.timeout', '3600s'
         systemProperty 'aeron.event.log.reader.classname', 'io.aeron.agent.CollectingEventLogReaderAgent'
-        systemProperty 'aeron.fallback.logger', 'no_op'
     }
 
     tasks.register('bindingsTest', Test) {
@@ -1210,7 +1210,6 @@ project(':aeron-samples') {
         systemProperty 'aeron.event.log', 'admin'
         systemProperty 'aeron.debug.timeout', '3600s'
         systemProperty 'aeron.event.log.reader.classname', 'io.aeron.agent.CollectingEventLogReaderAgent'
-        systemProperty 'aeron.fallback.logger', 'no_op'
     }
 
     tasks.register('asciidoctorGithub', io.aeron.build.AsciidoctorPreprocessTask) {
@@ -1258,7 +1257,6 @@ project(':aeron-system-tests') {
         systemProperty 'aeron.event.log', 'admin'
         systemProperty 'aeron.debug.timeout', '3600s'
         systemProperty 'aeron.event.log.reader.classname', 'io.aeron.agent.CollectingEventLogReaderAgent'
-        systemProperty 'aeron.fallback.logger', 'no_op'
     }
 
     shadowJar {
