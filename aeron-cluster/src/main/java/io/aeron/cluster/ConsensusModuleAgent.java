@@ -3467,7 +3467,7 @@ final class ConsensusModuleAgent
 
         for (final PendingServiceMessageTracker tracker : pendingServiceMessageTrackers)
         {
-            snapshotTaker.snapshot(tracker, ctx.errorHandler());
+            snapshotTaker.snapshot(tracker, ctx.countedErrorHandler());
         }
 
         snapshotTaker.markEnd(SNAPSHOT_TYPE_ID, logPosition, leadershipTermId, 0, clusterTimeUnit, ctx.appVersion());
@@ -3874,7 +3874,7 @@ final class ConsensusModuleAgent
                 }
                 catch (final ClusterException ex)
                 {
-                    ctx.errorHandler().onError(ex);
+                    ctx.countedErrorHandler().onError(ex);
                     break;
                 }
 
@@ -3894,11 +3894,20 @@ final class ConsensusModuleAgent
 
         if (null != standbySnapshotReplicator)
         {
-            workCount += standbySnapshotReplicator.poll(nowNs);
-
-            if (standbySnapshotReplicator.isComplete())
+            try
             {
-                recoveryPlan = recordingLog.createRecoveryPlan(archive, ctx.serviceCount(), Aeron.NULL_VALUE);
+                workCount += standbySnapshotReplicator.poll(nowNs);
+
+                if (standbySnapshotReplicator.isComplete())
+                {
+                    recoveryPlan = recordingLog.createRecoveryPlan(archive, ctx.serviceCount(), Aeron.NULL_VALUE);
+                    CloseHelper.quietClose(standbySnapshotReplicator);
+                    standbySnapshotReplicator = null;
+                }
+            }
+            catch (final ClusterException ex)
+            {
+                ctx.countedErrorHandler().onError(ex);
                 CloseHelper.quietClose(standbySnapshotReplicator);
                 standbySnapshotReplicator = null;
             }
