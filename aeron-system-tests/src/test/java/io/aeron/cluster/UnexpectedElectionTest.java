@@ -129,7 +129,8 @@ public class UnexpectedElectionTest
                 node0.poll();
                 node1.poll();
                 node2.poll();
-                return node0.publicationPosition() > expectedPositionLowerBound &&
+                return
+                    node0.publicationPosition() > expectedPositionLowerBound &&
                     node0.publicationPosition() == node0.commitPosition() &&
                     node0.commitPosition() == node1.commitPosition() &&
                     node0.commitPosition() == node2.commitPosition();
@@ -142,7 +143,8 @@ public class UnexpectedElectionTest
                 node0.poll();
                 node1.poll();
                 node2.poll();
-                return node0.commitPosition() > commitPositionBeforeFragmentedMessage &&
+                return
+                    node0.commitPosition() > commitPositionBeforeFragmentedMessage &&
                     node0.commitPosition() < (commitPositionBeforeFragmentedMessage + EIGHT_MEGABYTES);
             });
 
@@ -176,7 +178,8 @@ public class UnexpectedElectionTest
                 node0.poll();
                 node1.poll();
                 node2.poll();
-                return node0.publicationPosition() == node0.commitPosition() &&
+                return
+                    node0.publicationPosition() == node0.commitPosition() &&
                     node0.commitPosition() == node1.commitPosition() &&
                     node0.commitPosition() == node2.commitPosition() &&
                     node0.commitPosition() == node0.servicePosition() &&
@@ -242,7 +245,8 @@ public class UnexpectedElectionTest
                 node0.poll();
                 node1.poll();
                 node2.poll();
-                return node0.publicationPosition() > expectedPositionLowerBound &&
+                return
+                    node0.publicationPosition() > expectedPositionLowerBound &&
                     node0.publicationPosition() == node0.commitPosition() &&
                     node0.commitPosition() == node1.commitPosition() &&
                     node0.commitPosition() == node2.commitPosition();
@@ -290,7 +294,8 @@ public class UnexpectedElectionTest
                 node0.poll();
                 node1.poll();
                 node2.poll();
-                return expectedAppendPosition < node0.consensusModulePosition() &&
+                return
+                    expectedAppendPosition < node0.consensusModulePosition() &&
                     node0.publicationPosition() == node0.commitPosition() &&
                     node0.commitPosition() == node1.commitPosition() &&
                     node0.commitPosition() == node2.commitPosition() &&
@@ -332,7 +337,8 @@ public class UnexpectedElectionTest
         private int serviceSubscriberPositionCounterId = Aeron.NULL_VALUE;
         private int consensusModuleSubscriberPositionCounterId = Aeron.NULL_VALUE;
 
-        ClusterNode(final int clusterMemberId,
+        ClusterNode(
+            final int clusterMemberId,
             final int appointedLeader,
             final Path directory,
             final AtomicBoolean waiting)
