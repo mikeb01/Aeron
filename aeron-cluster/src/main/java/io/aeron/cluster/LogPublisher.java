@@ -182,6 +182,53 @@ final class LogPublisher
         final ClusterSession session,
         final long leadershipTermId,
         final long timestamp,
+        final TimeUnit timeUnit,
+        final ConsensusModuleExtension extension)
+    {
+        if (null == extension)
+        {
+            return appendSessionClose(memberId, session, leadershipTermId, timestamp, timeUnit);
+        }
+
+        final int length = MessageHeaderEncoder.ENCODED_LENGTH + SessionCloseEventEncoder.BLOCK_LENGTH;
+
+        if (publication.availableWindow() < 2L * align(DataHeaderFlyweight.HEADER_LENGTH + length, FRAME_ALIGNMENT))
+        {
+            return false;
+        }
+
+        if (!appendSessionClose(memberId, session, leadershipTermId, timestamp, timeUnit))
+        {
+            return false;
+        }
+
+        final DirectBuffer extensionSessionCloseMessage = extension.sessionCloseMessage(session.id());
+        if (null == extensionSessionCloseMessage)
+        {
+            return true;
+        }
+
+        int attempts = SEND_ATTEMPTS;
+        do
+        {
+            final long position = publication.offer(extensionSessionCloseMessage);
+            if (position > 0)
+            {
+                return true;
+            }
+
+            checkResult(position, publication);
+        }
+        while (--attempts > 0);
+
+        return false;
+    }
+
+    boolean appendSessionClose(
+        final int memberId,
+        final ClusterSession session,
+        final long leadershipTermId,
+        final long timestamp,
         final TimeUnit timeUnit)
     {
         final int length = MessageHeaderEncoder.ENCODED_LENGTH + SessionCloseEventEncoder.BLOCK_LENGTH;

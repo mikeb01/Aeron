@@ -185,4 +185,11 @@ public interface ConsensusModuleExtension extends AutoCloseable
      * @param snapshotPublication to which the state should be recorded.
      */
     void onTakeSnapshot(ExclusivePublication snapshotPublication);
+
+    /**
+     * Gets the extension's session close message.
+     *
+     * @return a buffer containing the sequencer close message.
+     */
+    DirectBuffer sessionCloseMessage(final long clusterSessionId);
 }

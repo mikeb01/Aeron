@@ -1016,6 +1016,11 @@ public final class TestNode implements AutoCloseable
         {
             return snapshots;
         }
+
+        public DirectBuffer sessionCloseMessage(final long clusterSessionId)
+        {
+            return null;
+        }
     }
 
     public record TestExtensionSnapshot(long ingressMessageCount, long logMessageCount)

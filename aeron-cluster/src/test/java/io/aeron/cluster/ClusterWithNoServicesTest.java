@@ -305,5 +305,10 @@ class ClusterWithNoServicesTest
                 latch.countDown();
             }
         }
+
+        public DirectBuffer sessionCloseMessage(final long clusterSessionId)
+        {
+            return null;
+        }
     }
 }

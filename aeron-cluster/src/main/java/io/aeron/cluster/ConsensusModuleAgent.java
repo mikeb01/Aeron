@@ -799,7 +799,8 @@ final class ConsensusModuleAgent
                 session.disconnect(aeron, ctx.countedErrorHandler());
 
                 final long timestamp = clusterClock.time();
-                if (logPublisher.appendSessionClose(memberId, session, leadershipTermId, timestamp, clusterTimeUnit))
+                if (logPublisher.appendSessionClose(
+                    memberId, session, leadershipTermId, timestamp, clusterTimeUnit, consensusModuleExtension))
                 {
                     logAppendSessionClose(
                         memberId, session.id(), session.closeReason(), leadershipTermId, timestamp, clusterTimeUnit);
@@ -1499,7 +1500,8 @@ final class ConsensusModuleAgent
             if (Cluster.Role.LEADER == role && ConsensusModule.State.ACTIVE == state)
             {
                 final long timestamp = clusterClock.time();
-                if (logPublisher.appendSessionClose(memberId, session, leadershipTermId, timestamp, clusterTimeUnit))
+                if (logPublisher.appendSessionClose(
+                    memberId, session, leadershipTermId, timestamp, clusterTimeUnit, consensusModuleExtension))
                 {
                     logAppendSessionClose(
                         memberId, session.id(), session.closeReason(), leadershipTermId, timestamp, clusterTimeUnit);
@@ -2995,7 +2997,7 @@ final class ConsensusModuleAgent
 
                         final long timestamp = clusterClock.time();
                         if (logPublisher.appendSessionClose(
-                            memberId, session, leadershipTermId, timestamp, clusterTimeUnit))
+                            memberId, session, leadershipTermId, timestamp, clusterTimeUnit, consensusModuleExtension))
                         {
                             logAppendSessionClose(
                                 memberId,
